@@ -1,0 +1,39 @@
+name: Tests and container check
+on:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Check JavaScript and run real encoding tests
+        run: |
+          npm run check
+          npm test
+      - name: Validate Compose files
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example -f compose.proxy.yaml config --quiet
+          docker compose --env-file .env.example -f compose.yaml -f compose.build.yaml config --quiet
+      - name: Build and smoke-test non-root container
+        run: |
+          docker build --tag reelshrink:test .
+          docker run --detach --name reelshrink-smoke reelshrink:test
+          trap 'docker logs reelshrink-smoke; docker rm -f reelshrink-smoke' EXIT
+          for attempt in $(seq 1 45); do
+            if docker exec reelshrink-smoke node app/healthcheck.mjs; then
+              test "$(docker exec reelshrink-smoke id -u)" = '1000'
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1

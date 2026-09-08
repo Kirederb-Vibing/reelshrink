@@ -1,0 +1,6 @@
+# Optional build override for either Compose file.
+services:
+  reelshrink:
+    image: reelshrink:local
+    build:
+      context: .

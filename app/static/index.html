@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark"><meta name="description" content="Komprimér film og serier med valgbare undertekster.">
+  <title>ReelShrink · Encoding</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Gå til indhold</a>
+  <header class="topbar"><a class="brand" href="/" aria-label="ReelShrink forside"><span class="brand-mark" aria-hidden="true">R<span>↘</span></span>ReelShrink<span class="version" id="version">0.1</span></a><span class="connection" id="connection" role="status">Forbinder…</span></header>
+  <main id="main">
+    <div class="heading"><div><p class="eyebrow">FILM & SERIER</p><h1>Dit encoding-overblik</h1></div><div class="actions"><button id="pause" class="button secondary" disabled>Sæt kø på pause</button><button id="scan" class="button secondary">Scan nu</button><button class="button primary" data-action="add">+ Tilføj mappe</button></div></div>
+    <div id="connection-error" class="alert" role="alert" hidden></div>
+    <section class="stats" aria-label="Statistik"><article><span>Plads sparet i videofiler</span><strong id="saved">—</strong><small>Forskel mellem original og resultat</small></article><article><span>I kø</span><strong id="queued">—</strong><small>Venter på encoding</small></article><article><span>Færdige filer</span><strong id="completed">—</strong><small>Kontrolleret og gemt</small></article><article><span>Ledig outputplads</span><strong id="free">—</strong><small id="output-root">Outputmappe</small></article></section>
+    <div class="workspace"><div class="primary-column">
+      <section id="active-panel" class="panel active-panel" aria-label="Aktiv encoding"><div class="empty"><span class="large-symbol" aria-hidden="true">▶</span><h2>Forbinder til din kø</h2><p>Henter jobs og mapper…</p></div></section>
+      <section class="panel queue-panel" aria-labelledby="queue-title"><div class="panel-heading"><h2 id="queue-title">Kø & historik</h2><span id="job-count" class="muted">0 filer</span></div>
+        <div class="filters"><label class="sr-only" for="filter">Filtrér status</label><select id="filter"><option value="all">Alle statusser</option><option value="active">Aktive & i kø</option><option value="completed">Færdige</option><option value="failed">Fejlede</option><option value="skipped">Sprunget over</option><option value="cancelled">Annullerede</option></select><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find film eller episode" aria-label="Søg efter film eller episode"></label></div>
+        <div id="job-list"><p class="loading">Henter historik…</p></div><div class="pagination" id="pagination" hidden><button id="previous" class="button small secondary">Forrige</button><span id="page-info"></span><button id="next" class="button small secondary">Næste</button></div>
+      </section>
+    </div><aside>
+      <section class="panel" aria-labelledby="watch-title"><div class="panel-heading"><h2 id="watch-title">Overvågede mapper</h2><button class="icon-button" data-action="add" aria-label="Tilføj mappe">+</button></div><div id="watch-list"><p class="loading">Henter mapper…</p></div></section>
+      <section class="panel note-panel"><span class="tag">ORIGINALER BEVARES</span><h2>Undertekster på dine vilkår</h2><p>SRT-filer lægges ind som valgbare spor i MKV-filen. Du vælger selv undertekster i din afspiller.</p><div class="rule"></div><p>Resultatet gemmes separat. Der slettes eller overskrives aldrig noget i kildemappen.</p></section>
+      <div class="engine-info" id="engine-info">CPU-encoding · FFmpeg</div>
+    </aside></div>
+    <footer>ReelShrink <span>Lokalt på din server</span></footer>
+  </main>
+  <dialog id="watch-dialog" aria-labelledby="watch-dialog-title"><form id="watch-form"><div class="dialog-heading"><div><p class="eyebrow">AUTOMATISK ENCODING</p><h2 id="watch-dialog-title">Tilføj en mappe</h2></div><button type="button" class="icon-button" data-close="watch-dialog" aria-label="Luk">×</button></div>
+    <input type="hidden" id="watch-id"><label for="watch-name">Navn</label><input id="watch-name" placeholder="Fx Film eller Serier" maxlength="60" required>
+    <label for="watch-path">Kildemappe</label><div class="input-action"><input id="watch-path" placeholder="/media/film" required><button id="browse-toggle" type="button" class="button secondary">Vælg mappe</button></div><p class="hint">Stien skal være synlig inde i containeren. Undermapper medtages.</p>
+    <div id="browser" class="browser" hidden><div class="browser-heading"><button type="button" id="browse-up" class="button small secondary">↑ Op</button><code id="browse-path">Mediemapper</code></div><div id="browse-list"></div><button id="browse-select" type="button" class="button small primary">Brug denne mappe</button></div>
+    <div class="form-grid"><div><label for="codec">Videoformat</label><select id="codec"><option value="hevc">H.265 / HEVC · mindre filer</option><option value="h264">H.264 · bred kompatibilitet</option></select></div><div><label for="quality">Billedkvalitet</label><select id="quality"><option value="high">Høj kvalitet</option><option value="balanced" selected>Balanceret</option><option value="small">Mindre fil</option></select></div><div><label for="height">Opløsning</label><select id="height"><option value="0">Bevar original opløsning</option><option value="1080">Maks. 1080p</option><option value="720">Maks. 720p</option></select></div><div><label for="preset">Encoding-hastighed</label><select id="preset"><option value="fast">Hurtig</option><option value="medium" selected>Normal</option><option value="slow">Langsom · bedre komprimering</option></select></div></div>
+    <label for="audio">Lydspor</label><select id="audio"><option value="copy">Bevar alle lydspor uændret</option><option value="aac_stereo">Konvertér alle spor til AAC stereo · 192 kbit/s</option></select>
+    <label class="check"><input type="checkbox" id="smaller" checked><span>Gem kun resultatet, hvis videofilen bliver mindre</span></label><label class="check"><input type="checkbox" id="sidecars" checked><span>Kopiér også SRT, NFO og tilhørende billeder</span></label>
+    <p class="hint">Undertekster bliver altid valgbare spor. Opløsning og synlig kvalitet er forskellige: prøv profilen på en enkelt film først. HDR/Dolby Vision og interlaced video springes over i denne version.</p><p id="settings-note" class="hint" hidden>Ændringer gælder nye jobs og jobs, du genstarter. Jobs, der allerede er i kø, beholder deres profil.</p>
+    <p id="watch-error" class="form-error" role="alert" hidden></p><div class="dialog-footer"><button type="button" data-close="watch-dialog" class="button secondary">Luk</button><button id="watch-save" type="submit" class="button primary">Start overvågning</button></div>
+  </form></dialog>
+  <dialog id="job-dialog" aria-labelledby="job-dialog-title"><div class="dialog-heading"><h2 id="job-dialog-title">Jobdetaljer</h2><button class="icon-button" data-close="job-dialog" aria-label="Luk">×</button></div><div id="job-detail"></div><div class="dialog-footer"><button class="button secondary" data-close="job-dialog">Luk</button></div></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><h2 id="confirm-title">Bekræft handling</h2><p id="confirm-text"></p><div class="dialog-footer"><button class="button secondary" data-close="confirm-dialog">Fortryd</button><button id="confirm-yes" class="button danger">Bekræft</button></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript>Aktivér JavaScript for at bruge ReelShrink.</noscript>
+</body></html>

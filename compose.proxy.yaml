@@ -1,0 +1,54 @@
+# Standalone alternative: use -f compose.proxy.yaml, not as an override of compose.yaml.
+services:
+  reelshrink:
+    image: ${REELSHRINK_IMAGE:-ghcr.io/kirederb-vibing/reelshrink:latest}
+    container_name: reelshrink
+    restart: unless-stopped
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    stop_grace_period: 30s
+    environment:
+      TZ: ${TZ:-Europe/Copenhagen}
+      ENCODE_THREADS: ${ENCODE_THREADS:-2}
+      SCAN_INTERVAL: ${SCAN_INTERVAL:-30}
+      STABLE_SECONDS: ${STABLE_SECONDS:-60}
+      MIN_FREE_GB: ${MIN_FREE_GB:-2}
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+    volumes:
+      - type: bind
+        source: ${CONFIG_PATH:-./config}
+        target: /config
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MOVIES_PATH:-./media/movies}
+        target: /media/movies
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SERIES_PATH:-./media/series}
+        target: /media/series
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${OUTPUT_PATH:-./output}
+        target: /output
+        bind:
+          create_host_path: false
+    networks:
+      - proxy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  proxy:
+    external: true

@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+/config/
+/output/
+/media/
+/dev-config/
+/dev-output/
+/dev-media/
+node_modules/
+coverage/
+*.log
+*.sqlite*
+.DS_Store
+*.zip
