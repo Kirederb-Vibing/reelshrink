@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-09-09
+
+- Vælg 30, 50, 100, 200, 500 eller alle jobs i listen.
+- Sidestørrelsen huskes i browseren, og sideskift tilpasses valget.
+- API understøtter op til 500 jobs pr. side eller `limit=all`, med stabil sortering.
+
 ## 0.2.0 — 2026-09-09
 
 - Fjern-knap i jobliste og detaljer samt markering/fjernelse af op til 100 jobs.

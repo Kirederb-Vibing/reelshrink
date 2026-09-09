@@ -4,7 +4,7 @@ En lille, selvhostet tjeneste til at komprimere film og serier med en dansk web-
 
 ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede MKV-filer i en separat outputmappe. Den sletter eller overskriver aldrig dine originaler. Video, lyd, scanning, database og GUI kører i én Docker-container.
 
-**Version:** 0.2.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
+**Version:** 0.2.1 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
 
 > Første udgivelse. [GitHub-repository](https://github.com/Kirederb-Vibing/reelshrink) · [Buildstatus](https://github.com/Kirederb-Vibing/reelshrink/actions/workflows/publish.yml). Image: `ghcr.io/kirederb-vibing/reelshrink:latest`. Imaget er tilgængeligt, når publiceringsworkflowet er grønt; kontroller pakkens adgang ved første installation.
 
@@ -174,6 +174,8 @@ CRF er kvalitetsstyring, ikke en målstørrelse. Tallene er ikke direkte sammenl
 GB i filtrene er decimal: **1 GB = 1.000.000.000 bytes**. Størrelsesvisningen i joblisten bruger GiB (1.073.741.824 bytes). En fil på præcis minimum/maksimum accepteres. `0` deaktiverer grænsen. Filen springes over, hvis ét filter udelukker den; årsagen vises i listen og jobdetaljerne. Codec alene siger ikke noget sikkert om kvalitet eller mulig besparelse.
 
 Størrelse kontrolleres efter filstabilitet ved scanning og igen før encoding. Varighed, højde og codec kontrolleres med FFprobe, når jobbet når frem i køen, før encoding starter. **Anvend filtrene på ventende jobs** er slået til som standard ved redigering: størrelsesfiltre anvendes straks, mens metadatafiltre kontrolleres ved jobstart. Ventende jobs beholder deres øvrige encoding-profil. Aktive jobs ændres ikke. Slå valget fra for kun at ændre filtre på fremtidige jobs. Allerede oversprungne jobs kan genstartes med **Prøv igen**, når filtrene er rettet.
+
+**Vis pr. side** over joblisten giver valgene 30, 50, 100, 200, 500 og Alle. Valget huskes i din browser. Alle viser alle jobs, som matcher den aktuelle søgning og status; meget store lister kan være langsommere. Grænsen for fjernelse er fortsat 100 valgte jobs ad gangen.
 
 **Fjern** og **Fjern valgte** rydder poster fra kø/historik, og ventende jobs tages ud af køen. Originaler, SRT og færdige outputfiler bevares. Aktive/annullerende jobs kan først fjernes, når de er stoppet. Vælg alle på den synlige side, eller markér enkelte jobs på tværs af sider (maks. 100 ad gangen). Ændring af søgning eller statusfilter nulstiller markeringen. En batch fjernes enten samlet eller slet ikke.
 

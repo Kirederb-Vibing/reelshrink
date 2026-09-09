@@ -121,8 +121,10 @@ export async function createService(c,{background=true}={}) {
       }
       if(p==='/api/jobs'&&method==='GET') {
         const state=url.searchParams.get('state')||'all',q=(url.searchParams.get('q')||'').slice(0,150);
-        const limit=Math.min(100,Math.max(1,Number(url.searchParams.get('limit'))||30)),offset=Math.max(0,Number(url.searchParams.get('offset'))||0);
-        if(!Number.isInteger(limit)||!Number.isInteger(offset))fail('Ugyldig side.');
+        const requested=url.searchParams.get('limit')??'30';
+        const limit=requested==='all'?'all':Number(requested);
+        const offset=limit==='all'?0:Number(url.searchParams.get('offset')??0);
+        if((limit!=='all'&&(!Number.isSafeInteger(limit)||limit<1||limit>500))||!Number.isSafeInteger(offset)||offset<0)fail('Ugyldig side. Brug limit 1–500 eller all.');
         const clauses=['j.hidden=0'],params=[];
         if(state==='active') clauses.push("j.state IN ('queued','running','cancel_requested')");
         else if(state!=='all') {if(!['completed','skipped','failed','cancelled'].includes(state))fail('Ugyldig status.');clauses.push('j.state=?');params.push(state);}
@@ -130,7 +132,7 @@ export async function createService(c,{background=true}={}) {
         const where=clauses.length?'WHERE '+clauses.join(' AND '):'';
         const total=store.get(`SELECT COUNT(*) AS n FROM jobs j ${where}`,...params).n;
         const items=store.all(`SELECT j.*,w.name AS watch_name FROM jobs j JOIN watches w ON w.id=j.watch_id ${where}
-          ORDER BY CASE j.state WHEN 'running' THEN 0 WHEN 'cancel_requested' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,j.created DESC LIMIT ? OFFSET ?`,...params,limit,offset)
+          ORDER BY CASE j.state WHEN 'running' THEN 0 WHEN 'cancel_requested' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,j.created DESC,j.id DESC LIMIT ? OFFSET ?`,...params,limit==='all'?-1:limit,offset)
           .map(j=>{const result=store.parseJob(j);delete result.log;return result;});
         return json(res,200,{items,total,limit,offset});
       }

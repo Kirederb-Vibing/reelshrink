@@ -318,3 +318,34 @@ test('watch filters update existing queued jobs atomically without changing enco
   assert.equal(store.job(id).state,'skipped');assert.match(store.job(id).error,/minutter/);
   assert.ok(await fs.stat(source));
 });
+
+
+test('job pagination returns 30, 50, 100, 200, 500 or all matches without truncation',async t=>{
+  const e=await env(t),service=await createService(e.c,{background:false});t.after(()=>service.close());
+  await new Promise(resolve=>service.server.listen(0,'127.0.0.1',resolve));
+  const origin='http://127.0.0.1:'+service.server.address().port;
+  const watch=service.store.addWatch('Pages',e.media,settings());
+  service.store.db.exec('BEGIN');
+  for(let i=0;i<537;i++){
+    const name=`Movie-${String(i).padStart(3,'0')}.mkv`;
+    const id=service.store.enqueue(watch,path.join(e.media,name),name,'signature-'+i,{subtitles:[],sidecars:[]},1e9);
+    if(i<12)service.store.updateJob(id,{state:'skipped'});
+  }
+  service.store.run('UPDATE jobs SET created=1');
+  const hidden=service.store.get('SELECT id FROM jobs LIMIT 1').id;
+  service.store.run('UPDATE jobs SET hidden=1 WHERE id=?',hidden);
+  service.store.db.exec('COMMIT');
+  const read=async query=>{const r=await fetch(origin+'/api/jobs'+query);assert.equal(r.status,200);return r.json();};
+  assert.equal((await read('')).items.length,30);
+  for(const size of [30,50,100,200,500]){
+    const page=await read('?limit='+size);assert.equal(page.items.length,size);assert.equal(page.total,536);assert.equal(page.limit,size);
+  }
+  const all=await read('?limit=all&offset=500');assert.equal(all.limit,'all');assert.equal(all.offset,0);assert.equal(all.items.length,536);
+  const first=await read('?limit=500'),last=await read('?limit=500&offset=500');
+  assert.equal(last.items.length,36);assert.deepEqual([...first.items,...last.items].map(j=>j.id),all.items.map(j=>j.id));
+  assert.equal((await read('?limit=500&offset=1000')).items.length,0);
+  const filtered=await read('?limit=all&state=skipped&q=Movie-00');
+  assert.ok(filtered.items.length>0);assert.ok(filtered.items.every(j=>j.state==='skipped'&&j.relative.startsWith('Movie-00')));
+  const empty=await read('?limit=all&q=does-not-exist');assert.equal(empty.total,0);assert.deepEqual(empty.items,[]);
+  for(const query of ['?limit=501','?limit=1.5','?limit=bogus','?limit=0','?limit=30&offset=-1'])assert.equal((await fetch(origin+'/api/jobs'+query)).status,400);
+});

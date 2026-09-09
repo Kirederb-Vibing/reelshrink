@@ -1,6 +1,6 @@
 {
   "name": "reelshrink",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Self-hosted video compression with folder watching and selectable subtitles",
   "private": true,
   "type": "module",

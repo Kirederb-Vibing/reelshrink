@@ -22,7 +22,7 @@ Samme origin og port som GUI'en. JSON-svar. HTTP Basic gælder alle endpoints un
 | POST | `/api/jobs/{id}/cancel` | Annullér; body `{}` |
 | POST | `/api/jobs/{id}/retry` | Genstart med mappens nuværende profil; body `{}` |
 
-Jobliste-parametre: `state=all|active|completed|failed|skipped|cancelled`, `q=<tekst>`, `offset=0`, `limit=30` (maks. 100). Svaret er `{items,total,limit,offset}`. `active` omfatter kø, encoding og igangværende annullering. `settings` og `bundle` i et job er snapshots fra oprettelsen.
+Jobliste-parametre: `state=all|active|completed|failed|skipped|cancelled`, `q=<tekst>`, `offset=0`, `limit=30` (1–500 eller `all`). Svaret er `{items,total,limit,offset}`. `active` omfatter kø, encoding og igangværende annullering. `settings` og `bundle` i et job er snapshots fra oprettelsen.
 
 Eksempel:
 
@@ -49,3 +49,5 @@ Fejl svarer med `{"error":"beskrivelse"}`. API'et tilbyder ikke fil-upload, medi
 Fjernelse skjuler jobbet, stopper et ventende job og bevarer kilde-signaturen som beskyttelse mod genoprettelse ved scanning. Ingen input-/outputfiler slettes. Skjulte jobs udelades fra lister/statistik og giver 404 ved detailopslag. `/retry` genopliver dem ikke.
 
 En batch afvises uden ændringer, hvis et ID mangler (404), et job kører/annulleres (409), eller input er ugyldigt (400). Dubletter tælles kun én gang. Succes: `{"removed":2}`. Samme login-/CSRF-beskyttelse som andre skrivende endpoints.
+
+Ved `limit=all` returneres alle matchende, synlige jobs, og `offset` sættes til 0. Svarets `limit` er da strengen `all`; ellers er den et tal. Søge-/statusfiltre gælder også for Alle. Ugyldige sideparametre giver 400. Fjernelse er fortsat begrænset til 100 jobs pr. kald.

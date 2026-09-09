@@ -14,7 +14,7 @@ const selectedJobs=new Set();
 let visibleJobs=[];
 const removable=j=>!['running','cancel_requested'].includes(j.state);
 const filterFields=[['min-size','minSizeGB'],['max-size','maxSizeGB'],['min-duration','minDurationMinutes'],['min-source-height','minSourceHeight']];
-let watches=[],system=null,status=null,offset=0,total=0,refreshing=false,toastTimer,browserState=null,detailId=null;
+let watches=[],system=null,status=null,offset=0,total=0,refreshing=false,refreshAgain=false,toastTimer,browserState=null,detailId=null;
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500);}
 function error(message){$('connection-error').textContent=message;$('connection-error').hidden=false;}
 function confirmAction(title,text){return new Promise(resolve=>{const d=$('confirm-dialog');$('confirm-title').textContent=title;$('confirm-text').textContent=text;let accepted=false;$('confirm-yes').onclick=()=>{accepted=true;d.close();};d.addEventListener('close',()=>resolve(accepted),{once:true});d.showModal();});}
@@ -48,7 +48,9 @@ function renderJobs(data){
   visibleJobs=data.items;total=data.total;$('job-count').textContent=total+' filer';
   html('job-list',data.items.length?`<table class="job-table"><thead><tr><th>Fil</th><th>Profil</th><th>Status</th><th>Størrelse / handling</th></tr></thead><tbody>${data.items.map(j=>`<tr class="${selectedJobs.has(j.id)?'selected':''}"><td><div class="job-file"><input type="checkbox" class="job-checkbox" data-job-selection="${esc(j.id)}" aria-label="Vælg ${esc(base(j.source))}" ${selectedJobs.has(j.id)?'checked':''} ${removable(j)?'':'disabled'}><div><button class="file-button" data-action="detail" data-id="${esc(j.id)}">${esc(base(j.source))}</button><small>${esc(j.watch_name)}</small></div></div></td><td>${codecName(j.settings.codec)}<small>${esc(qualityNames[j.settings.quality])}</small></td><td>${badge(j.state)}${j.state==='running'?`<small>${Math.floor(j.progress)}%</small>`:''}${j.state==='skipped'&&j.error?`<small class="skip-reason">${esc(j.error)}</small>`:''}</td><td>${j.state==='completed'?bytes(j.output_bytes):bytes(j.input_bytes)}${j.state==='completed'?`<small class="savings">${j.output_bytes<j.input_bytes?'−':'+'}${Math.abs(Math.round(100*(1-j.output_bytes/j.input_bytes)))}% · ${bytes(j.input_bytes)} før</small>`:''}<button class="text-button remove-job" data-action="remove-job" data-id="${esc(j.id)}" ${removable(j)?'':'disabled title="Annullér jobbet, og vent til det er stoppet"'} aria-label="Fjern ${esc(base(j.source))} fra listen">Fjern</button></td></tr>`).join('')}</tbody></table>`:`<div class="empty"><h2>${$('search').value||$('filter').value!=='all'?'Ingen match':'Køen er tom'}</h2><p>${$('search').value||$('filter').value!=='all'?'Prøv et andet søgeord eller en anden status.':'Dine film og episoder vises her, når de er fundet og klar til encoding.'}</p></div>`);
   syncSelection();
-  $('pagination').hidden=total<=30;$('previous').disabled=offset===0;$('next').disabled=offset+30>=total;$('page-info').textContent=total?`${offset+1}–${Math.min(offset+30,total)} af ${total}`:'0 filer';
+  const all=data.limit==='all',size=all?total:data.limit;
+  $('pagination').hidden=all||total<=size;$('previous').disabled=offset===0;$('next').disabled=all||offset+size>=total;$('page-info').textContent=total?`${offset+1}–${Math.min(offset+size,total)} af ${total}`:'0 filer';
+  $('all-jobs-note').hidden=!all;
 }
 async function removeJobs(ids){
   if(!ids.length)return;
@@ -61,12 +63,15 @@ async function removeJobs(ids){
   await refresh();
 }
 async function refresh(){
-  if(refreshing)return;refreshing=true;
+  if(refreshing){refreshAgain=true;return;}refreshing=true;
   try{
-    const params=new URLSearchParams({state:$('filter').value,q:$('search').value,offset:String(offset),limit:'30'});
+    const pageSize=$('page-size').value;
+    const params=new URLSearchParams({state:$('filter').value,q:$('search').value,offset:String(offset),limit:pageSize});
     const values=await Promise.all([api('/status'),api('/watches'),api('/jobs?'+params),system?Promise.resolve(system):api('/config')]);
-    if(values[2].total>0&&offset>=values[2].total){offset=Math.floor((values[2].total-1)/30)*30;params.set('offset',String(offset));values[2]=await api('/jobs?'+params);}
-    if(!values[2].total)offset=0;
+    if(pageSize!==$('page-size').value)return;
+    if(pageSize!=='all'&&values[2].total>0&&offset>=values[2].total){offset=Math.floor((values[2].total-1)/Number(pageSize))*Number(pageSize);params.set('offset',String(offset));values[2]=await api('/jobs?'+params);}
+    if(pageSize!==$('page-size').value)return;
+    if(!values[2].total||pageSize==='all')offset=0;
     [status,watches,,system]=values;
     $('connection-error').hidden=true;$('connection').textContent=status.scanning?'Scanner mapper…':status.paused?'Kø på pause':'Forbundet';$('connection').className='connection ok';
     $('version').textContent=system.version;$('pause').disabled=false;$('pause').textContent=status.paused?'Genoptag kø':'Sæt kø på pause';
@@ -75,7 +80,7 @@ async function refresh(){
     renderActive();renderWatches();renderJobs(values[2]);
     if(detailId&&$('job-dialog').open)renderDetail(await api('/jobs/'+detailId));
   }catch(e){$('connection').textContent='Ingen forbindelse';$('connection').className='connection offline';error('Kunne ikke opdatere overblikket: '+e.message);}
-  finally{refreshing=false;}
+  finally{refreshing=false;if(refreshAgain){refreshAgain=false;queueMicrotask(refresh);}}
 }
 function openWatch(id){
   const w=watches.find(w=>w.id===id);$('watch-form').reset();$('watch-id').value=id||'';$('watch-name').value=w?.name||'';$('watch-path').value=w?.path||'';$('watch-path').readOnly=Boolean(w);$('browse-toggle').disabled=Boolean(w);
@@ -125,7 +130,9 @@ $('job-dialog').addEventListener('close',()=>detailId=null);
 $('pause').onclick=async()=>{try{const paused=!status.paused;await api('/queue','POST',{paused});toast(paused?'Køen er sat på pause. Det aktive job færdiggøres.':'Køen er genoptaget.');await refresh();}catch(e){toast(e.message);}};
 $('scan').onclick=async()=>{try{await api('/scan','POST',{});toast('Scanning startet. Filer kontrolleres stadig for stabilitet.');await refresh();}catch(e){toast(e.message);}};
 $('filter').onchange=()=>{selectedJobs.clear();syncSelection();offset=0;refresh();};let searchTimer;$('search').oninput=()=>{clearTimeout(searchTimer);selectedJobs.clear();syncSelection();searchTimer=setTimeout(()=>{offset=0;refresh();},300);};
-$('previous').onclick=()=>{offset=Math.max(0,offset-30);refresh();};$('next').onclick=()=>{offset+=30;refresh();};
+$('page-size').onchange=()=>{offset=0;try{localStorage.setItem('reelshrink.pageSize',$('page-size').value);}catch{}refresh();};
+$('previous').onclick=()=>{offset=Math.max(0,offset-Number($('page-size').value));refresh();};$('next').onclick=()=>{offset+=Number($('page-size').value);refresh();};
+try{const saved=localStorage.getItem('reelshrink.pageSize');if(['30','50','100','200','500','all'].includes(saved))$('page-size').value=saved;}catch{}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 refresh();setInterval(()=>{if(!document.hidden)refresh();},2500);
 
