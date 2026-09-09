@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { constants } from 'node:fs';
-import { inside } from './config.mjs';
+import { inside, filterReason } from './config.mjs';
 import { discover, bundleFor, signatureFor, assertBundleAllowed, probe, hdrReason, encodeArgs, prepareSubtitles, validateOutput, run } from './media.mjs';
 
 export class Engine {
@@ -67,7 +67,12 @@ export class Engine {
             if(this.store.get('SELECT id FROM jobs WHERE watch_id=? AND source=? AND signature=?',watch.id,source,signature)) continue;
             // Superseded queued inputs must not run with an obsolete subtitle set.
             this.store.run("UPDATE jobs SET state='cancelled',error='Kilden blev ændret; en ny version sættes i kø.',updated=? WHERE watch_id=? AND source=? AND state='queued'",Date.now(),watch.id,source);
-            this.store.enqueue(watch,source,path.relative(watch.path,source),signature,bundle,stat.size);
+            // The watch may have been edited or removed during asynchronous discovery.
+            const current=this.store.watch(watch.id);
+            if(!current?.enabled) break;
+            const id=this.store.enqueue(current,source,path.relative(watch.path,source),signature,bundle,stat.size);
+            const reason=filterReason(current.settings,stat.size);
+            if(id && reason) this.store.updateJob(id,{state:'skipped',error:reason});
           }
           this.store.run('UPDATE watches SET last_scan=?,scan_error=NULL,waiting=? WHERE id=?',Date.now(),waiting,watch.id);
         } catch(error) {
@@ -82,7 +87,7 @@ export class Engine {
   }
   tick() {
     if(this.stopping || this.active || this.store.paused()) return;
-    const row=this.store.get("SELECT j.id FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND w.enabled=1 ORDER BY j.created,j.id LIMIT 1");
+    const row=this.store.get("SELECT j.id FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 ORDER BY j.created,j.id LIMIT 1");
     if(!row) return;
     const controller=new AbortController();
     this.active={id:row.id,controller};
@@ -116,10 +121,12 @@ export class Engine {
       const watch=this.store.watch(job.watch_id);
       await assertBundleAllowed(job.source,job.bundle,[watch.path]);
       if(await signatureFor(job.source,await bundleFor(job.source))!==job.signature) throw new Error('Kilden eller dens tilhørende filer er ændret. Scan igen.');
+      const sizeReason=filterReason(job.settings,job.input_bytes);
+      if(sizeReason) {this.store.updateJob(job.id,{state:'skipped',error:sizeReason});return;}
       const media=await probe(job.source,this.c,signal);
       const info={codec:media.video.codec_name,width:media.video.width,height:media.video.height,duration:media.duration,audio:media.streams.filter(s=>s.codec_type==='audio').length,subtitles:media.streams.filter(s=>s.codec_type==='subtitle').length+job.bundle.subtitles.length};
       this.store.updateJob(job.id,{info:JSON.stringify(info)});
-      const reason=hdrReason(media);
+      const reason=filterReason(job.settings,job.input_bytes,media)||hdrReason(media);
       if(reason) {this.store.updateJob(job.id,{state:'skipped',error:reason});return;}
       const disk=await fs.statfs(this.c.outputRoot);
       if(disk.bavail*disk.bsize < Math.max(this.c.minFreeBytes,job.input_bytes*1.1)) throw new Error('Der er for lidt ledig plads i outputmappen. Frigør plads, og prøv igen.');

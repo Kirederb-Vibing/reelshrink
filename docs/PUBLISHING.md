@@ -41,14 +41,14 @@ For en privat pakke skal Docker først logges ind på `ghcr.io` med passende læ
 
 ## Versioner og releases
 
-Opdater versionen i `package.json`, `app/config.mjs`, `Dockerfile` og `CHANGELOG.md`, og commit ændringen. Ved første release er disse allerede sat til `0.1.0`.
+Opdater versionen i `package.json`, `app/config.mjs`, `Dockerfile` og `CHANGELOG.md`, og commit ændringen. Ved første release er disse allerede sat til `0.2.0`.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-Tag-push udgiver `:0.1.0` og `:0.1`. `:latest` følger `main`. En GitHub Release kan derefter oprettes fra samme tag med indholdet fra CHANGELOG; selve imaget kræver ikke en GitHub Release.
+Tag-push udgiver `:0.2.0` og `:0.2`. `:latest` følger `main`. En GitHub Release kan derefter oprettes fra samme tag med indholdet fra CHANGELOG; selve imaget kræver ikke en GitHub Release.
 
 ## Hvad CI verificerer
 

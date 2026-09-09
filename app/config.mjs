@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 export function config(env = process.env) {
   const integer = (key, fallback, min, max) => {
     const value = Number(env[key] ?? fallback);
@@ -41,11 +41,32 @@ export function mediaPath(candidate, c) {
   if (!c.mediaRoots.some(root => { try {return inside(real, fs.realpathSync(root));} catch {return false;} })) throw new Error('Stien ligger uden for de tilladte mediemapper.');
   return real;
 }
-export const DEFAULT_SETTINGS = Object.freeze({ codec: 'hevc', quality: 'balanced', preset: 'medium', maxHeight: 0, audio: 'copy', onlySmaller: true, copySidecars: true });
+export const FILTER_DEFAULTS = Object.freeze({ minSizeGB: 0, maxSizeGB: 0, minDurationMinutes: 0, minSourceHeight: 0, skipCodecs: Object.freeze([]) });
+export const DEFAULT_SETTINGS = Object.freeze({ codec: 'hevc', quality: 'balanced', preset: 'medium', maxHeight: 0, audio: 'copy', onlySmaller: true, copySidecars: true, ...FILTER_DEFAULTS });
 export function settings(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Ugyldige indstillinger.');
   const s = { ...DEFAULT_SETTINGS, ...input };
   const choices = { codec: ['hevc', 'h264'], quality: ['high', 'balanced', 'small'], preset: ['fast', 'medium', 'slow'], maxHeight: [0, 1080, 720], audio: ['copy', 'aac_stereo'] };
   for (const [k, values] of Object.entries(choices)) if (!values.includes(s[k])) throw new Error(`Ugyldig indstilling: ${k}`);
   for (const k of ['onlySmaller', 'copySidecars']) if (typeof s[k] !== 'boolean') throw new Error(`Ugyldig indstilling: ${k}`);
+  for (const [k,max] of Object.entries({ minSizeGB: 100000, maxSizeGB: 100000, minDurationMinutes: 100000, minSourceHeight: 16384 })) {
+    if (typeof s[k] !== 'number' || !Number.isFinite(s[k]) || s[k] < 0 || s[k] > max) throw new Error(`Ugyldigt filter: ${k}`);
+  }
+  if (!Number.isInteger(s.minSourceHeight)) throw new Error('Minimumhøjden skal være et helt antal pixels.');
+  if (s.maxSizeGB && s.minSizeGB > s.maxSizeGB) throw new Error('Minimum filstørrelse må ikke overstige maksimum.');
+  if (!Array.isArray(s.skipCodecs) || s.skipCodecs.length > 3 || s.skipCodecs.some(c => !['hevc','av1','h264'].includes(c))) throw new Error('Ugyldigt codec-filter.');
+  s.skipCodecs = [...new Set(s.skipCodecs)];
   return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(k => [k, s[k]]));
+}
+
+// GB are decimal, as labelled in the form. Equality passes each minimum/maximum.
+export function filterReason(options, size, media = null) {
+  const s = { ...FILTER_DEFAULTS, ...options };
+  if (s.minSizeGB && size < s.minSizeGB * 1e9) return `Filter: Filen er under minimum på ${s.minSizeGB} GB.`;
+  if (s.maxSizeGB && size > s.maxSizeGB * 1e9) return `Filter: Filen er over maksimum på ${s.maxSizeGB} GB.`;
+  if (!media) return null;
+  if (s.minDurationMinutes && media.duration < s.minDurationMinutes * 60) return `Filter: Videoen er kortere end ${s.minDurationMinutes} minutter.`;
+  if (s.minSourceHeight && media.video.height < s.minSourceHeight) return `Filter: Kildens højde er under ${s.minSourceHeight} pixels.`;
+  if (s.skipCodecs.includes(media.video.codec_name)) return `Filter: Kildens codec (${media.video.codec_name}) er fravalgt.`;
+  return null;
 }

@@ -1,4 +1,10 @@
-# Verifikation af v0.1.0
+# Verifikation af v0.2.0
+
+9. september 2026: **20 tests bestået, 0 fejlet**, inklusive 3 undertests for metadatafiltre. Dækker også v0.1-databasemigration, eksakte GB-grænser, samlet fjernelse med rollback, filbevaring, genkendelse efter genstart, opdatering af ventende jobs og opt-out. Den eksisterende encoding-testpakke er genkørt.
+
+## Tidligere verifikation
+
+### v0.1.0
 
 Udført 8. september 2026 på Linux amd64 med Node.js **24.19.0** og FFmpeg **6.1.1-3ubuntu5**, inklusive libx265 og libx264.
 
@@ -30,10 +36,10 @@ Derudover er applikationens JavaScript-syntaks, YAML-syntaks, statiske GUI-refer
 
 ## Ikke verificeret i forberedelsesmiljøet
 
-- **Docker-build og faktisk containerstart:** Docker/Podman var ikke tilgængelig. Docker-opskriften er gennemgået; det inkluderede CI udfører build, opstart og healthcheck, når det køres på GitHub.
-- **GHCR-udgivelse/pull:** GitHub var markeret tilsluttet, men repository-/publiceringsværktøjer var ikke tilgængelige i sessionen. Der er derfor ikke publiceret et image som del af denne verifikation.
+- **Docker:** Ikke tilgængelig lokalt. GitHub Actions bygger containeren og tester opstart/healthcheck som UID 1000. v0.1 bestod dette gate 8. september 2026; nye versioner bruger samme gate.
+- **GHCR:** v0.1 blev publiceret 8. september 2026, og det offentlige manifest blev verificeret uden login for amd64/arm64. Nye versioner publiceres kun efter et grønt verifikationsjob.
 - **ARM64-kørsel:** Workflowet indeholder cross-build, men ingen test på fysisk ARM-hardware er udført.
-- **Visuel browser-QA:** GUI-filer og API er kontrolleret; ingen interaktiv browsertest er udført.
+- **Visuel browser-QA:** GUI-filer, referencer og API er kontrolleret. Det interaktive browsertestforsøg for v0.2 blev blokeret af browsermiljøet (`ERR_BLOCKED_BY_CLIENT` til den lokale testside); ingen interaktiv browsertest er gennemført.
 - **Lange film, NAS-afbrydelser, subjektiv billedkvalitet og afspillerkompatibilitet:** Prøv en repræsentativ film på målserveren og din normale afspiller før et stort bibliotek sættes i gang.
 
 ## Gentag testene

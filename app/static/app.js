@@ -10,6 +10,10 @@ const rendered=new Map();
 function html(id,content){const el=$(id);if(rendered.get(id)===content||el.contains(document.activeElement))return;el.innerHTML=content;rendered.set(id,content);}
 function badge(state){return `<span class="badge ${esc(state)}">${esc(stateNames[state]||state)}</span>`;}
 async function api(route,method='GET',data){const response=await fetch('/api'+route,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(20000)});const value=await response.json();if(!response.ok)throw new Error(value.error||'Forespørgslen mislykkedes.');return value;}
+const selectedJobs=new Set();
+let visibleJobs=[];
+const removable=j=>!['running','cancel_requested'].includes(j.state);
+const filterFields=[['min-size','minSizeGB'],['max-size','maxSizeGB'],['min-duration','minDurationMinutes'],['min-source-height','minSourceHeight']];
 let watches=[],system=null,status=null,offset=0,total=0,refreshing=false,toastTimer,browserState=null,detailId=null;
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500);}
 function error(message){$('connection-error').textContent=message;$('connection-error').hidden=false;}
@@ -23,16 +27,46 @@ function renderActive(){
 function renderWatches(){
   html('watch-list',watches.length?watches.map(w=>`<article class="watch-item"><div class="watch-top"><strong>${esc(w.name)}</strong><span class="badge ${w.enabled?'completed':''}">${w.enabled?'Aktiv':'Sat på pause'}</span></div><code>${esc(w.path)}</code><p class="watch-meta">${codecName(w.settings.codec)} · ${esc(qualityNames[w.settings.quality])} · ${w.settings.maxHeight?w.settings.maxHeight+'p':'Original opløsning'}<br>${w.waiting?`${w.waiting} fil(er) afventer stabilitet`:w.last_scan?'Senest scannet '+new Date(w.last_scan).toLocaleTimeString('da-DK',{hour:'2-digit',minute:'2-digit'}):'Afventer første scanning'}</p><div class="watch-actions"><button class="button small secondary" data-action="edit-watch" data-id="${esc(w.id)}">Indstillinger</button><button class="text-button" data-action="toggle-watch" data-id="${esc(w.id)}">${w.enabled?'Sæt på pause':'Aktivér'}</button><button class="text-button" data-action="delete-watch" data-id="${esc(w.id)}">Fjern</button></div>${w.scan_error?`<p class="watch-error">${esc(w.scan_error)}</p>`:''}</article>`).join(''):'<div class="empty"><h2>Ingen mapper endnu</h2><p>Tilføj en mappe for at begynde.</p></div>');
 }
+function syncSelection(){
+  const eligible=visibleJobs.filter(removable);
+  for(const j of visibleJobs)if(!removable(j))selectedJobs.delete(j.id);
+  for(const input of document.querySelectorAll('[data-job-selection]')){
+    const job=visibleJobs.find(j=>j.id===input.dataset.jobSelection);
+    input.checked=selectedJobs.has(input.dataset.jobSelection);
+    input.disabled=!job||!removable(job);
+    input.closest('tr').classList.toggle('selected',input.checked);
+  }
+  const count=eligible.filter(j=>selectedJobs.has(j.id)).length;
+  $('select-page').checked=eligible.length>0&&count===eligible.length;
+  $('select-page').indeterminate=count>0&&count<eligible.length;
+  $('select-page').disabled=!eligible.length;
+  $('selection-count').textContent=`${selectedJobs.size} valgt (maks. 100)`;
+  $('remove-selected').disabled=!selectedJobs.size;
+  $('clear-selection').disabled=!selectedJobs.size;
+}
 function renderJobs(data){
-  total=data.total;$('job-count').textContent=total+' filer';
-  html('job-list',data.items.length?`<table class="job-table"><thead><tr><th>Fil</th><th>Profil</th><th>Status</th><th>Størrelse</th></tr></thead><tbody>${data.items.map(j=>`<tr><td><button class="file-button" data-action="detail" data-id="${esc(j.id)}">${esc(base(j.source))}</button><small>${esc(j.watch_name)}</small></td><td>${codecName(j.settings.codec)}<small>${esc(qualityNames[j.settings.quality])}</small></td><td>${badge(j.state)}${j.state==='running'?`<small>${Math.floor(j.progress)}%</small>`:''}</td><td>${j.state==='completed'?bytes(j.output_bytes):bytes(j.input_bytes)}${j.state==='completed'?`<small class="savings">${j.output_bytes<j.input_bytes?'−':'+'}${Math.abs(Math.round(100*(1-j.output_bytes/j.input_bytes)))}% · ${bytes(j.input_bytes)} før</small>`:''}</td></tr>`).join('')}</tbody></table>`:`<div class="empty"><h2>${$('search').value||$('filter').value!=='all'?'Ingen match':'Køen er tom'}</h2><p>${$('search').value||$('filter').value!=='all'?'Prøv et andet søgeord eller en anden status.':'Dine film og episoder vises her, når de er fundet og klar til encoding.'}</p></div>`);
-  $('pagination').hidden=total<=30;$('previous').disabled=offset===0;$('next').disabled=offset+30>=total;$('page-info').textContent=`${offset+1}–${Math.min(offset+30,total)} af ${total}`;
+  visibleJobs=data.items;total=data.total;$('job-count').textContent=total+' filer';
+  html('job-list',data.items.length?`<table class="job-table"><thead><tr><th>Fil</th><th>Profil</th><th>Status</th><th>Størrelse / handling</th></tr></thead><tbody>${data.items.map(j=>`<tr class="${selectedJobs.has(j.id)?'selected':''}"><td><div class="job-file"><input type="checkbox" class="job-checkbox" data-job-selection="${esc(j.id)}" aria-label="Vælg ${esc(base(j.source))}" ${selectedJobs.has(j.id)?'checked':''} ${removable(j)?'':'disabled'}><div><button class="file-button" data-action="detail" data-id="${esc(j.id)}">${esc(base(j.source))}</button><small>${esc(j.watch_name)}</small></div></div></td><td>${codecName(j.settings.codec)}<small>${esc(qualityNames[j.settings.quality])}</small></td><td>${badge(j.state)}${j.state==='running'?`<small>${Math.floor(j.progress)}%</small>`:''}${j.state==='skipped'&&j.error?`<small class="skip-reason">${esc(j.error)}</small>`:''}</td><td>${j.state==='completed'?bytes(j.output_bytes):bytes(j.input_bytes)}${j.state==='completed'?`<small class="savings">${j.output_bytes<j.input_bytes?'−':'+'}${Math.abs(Math.round(100*(1-j.output_bytes/j.input_bytes)))}% · ${bytes(j.input_bytes)} før</small>`:''}<button class="text-button remove-job" data-action="remove-job" data-id="${esc(j.id)}" ${removable(j)?'':'disabled title="Annullér jobbet, og vent til det er stoppet"'} aria-label="Fjern ${esc(base(j.source))} fra listen">Fjern</button></td></tr>`).join('')}</tbody></table>`:`<div class="empty"><h2>${$('search').value||$('filter').value!=='all'?'Ingen match':'Køen er tom'}</h2><p>${$('search').value||$('filter').value!=='all'?'Prøv et andet søgeord eller en anden status.':'Dine film og episoder vises her, når de er fundet og klar til encoding.'}</p></div>`);
+  syncSelection();
+  $('pagination').hidden=total<=30;$('previous').disabled=offset===0;$('next').disabled=offset+30>=total;$('page-info').textContent=total?`${offset+1}–${Math.min(offset+30,total)} af ${total}`:'0 filer';
+}
+async function removeJobs(ids){
+  if(!ids.length)return;
+  if(!await confirmAction(ids.length===1?'Fjern jobbet fra listen?':`Fjern ${ids.length} valgte jobs?`,'Originaler og færdige filer bevares. Ventende jobs tages ud af køen. Uændrede filer sættes ikke automatisk i kø igen ved næste scanning.'))return;
+  await api('/jobs/remove','POST',{ids});
+  for(const id of ids)selectedJobs.delete(id);
+  if(ids.includes(detailId))$('job-dialog').close();
+  document.activeElement?.blur();rendered.delete('job-list');
+  toast(`${ids.length} job(s) fjernet fra listen. Mediefilerne er bevaret.`);
+  await refresh();
 }
 async function refresh(){
   if(refreshing)return;refreshing=true;
   try{
     const params=new URLSearchParams({state:$('filter').value,q:$('search').value,offset:String(offset),limit:'30'});
     const values=await Promise.all([api('/status'),api('/watches'),api('/jobs?'+params),system?Promise.resolve(system):api('/config')]);
+    if(values[2].total>0&&offset>=values[2].total){offset=Math.floor((values[2].total-1)/30)*30;params.set('offset',String(offset));values[2]=await api('/jobs?'+params);}
+    if(!values[2].total)offset=0;
     [status,watches,,system]=values;
     $('connection-error').hidden=true;$('connection').textContent=status.scanning?'Scanner mapper…':status.paused?'Kø på pause':'Forbundet';$('connection').className='connection ok';
     $('version').textContent=system.version;$('pause').disabled=false;$('pause').textContent=status.paused?'Genoptag kø':'Sæt kø på pause';
@@ -45,8 +79,10 @@ async function refresh(){
 }
 function openWatch(id){
   const w=watches.find(w=>w.id===id);$('watch-form').reset();$('watch-id').value=id||'';$('watch-name').value=w?.name||'';$('watch-path').value=w?.path||'';$('watch-path').readOnly=Boolean(w);$('browse-toggle').disabled=Boolean(w);
-  $('watch-dialog-title').textContent=w?'Mappeindstillinger':'Tilføj en mappe';$('watch-save').textContent=w?'Gem indstillinger':'Start overvågning';$('settings-note').hidden=!w;
+  $('watch-dialog-title').textContent=w?'Mappeindstillinger':'Tilføj en mappe';$('watch-save').textContent=w?'Gem indstillinger':'Start overvågning';$('settings-note').hidden=!w;$('apply-filters-label').hidden=!w;
   if(w){const s=w.settings;for(const [id,key]of [['codec','codec'],['quality','quality'],['preset','preset'],['height','maxHeight'],['audio','audio']])$(id).value=s[key];$('smaller').checked=s.onlySmaller;$('sidecars').checked=s.copySidecars;}
+  for(const [id,key]of filterFields)$(id).value=w?.settings[key]??0;
+  for(const codec of ['hevc','av1','h264'])$('skip-'+codec).checked=w?.settings.skipCodecs?.includes(codec)||false;
   $('watch-error').hidden=true;$('browser').hidden=true;$('watch-dialog').showModal();
 }
 async function browse(directory){
@@ -56,7 +92,7 @@ async function browse(directory){
 }
 function renderDetail(j){
   const s=j.settings,info=j.info;
-  html('job-detail',`<h3>${esc(base(j.source))}</h3><p class="hint">${esc(j.watch_name)} · ${new Date(j.created).toLocaleString('da-DK')}</p>${badge(j.state)}${j.error?`<div class="alert">${esc(j.error)}</div>`:''}<dl class="detail-grid"><div><dt>Profil</dt><dd>${codecName(s.codec)} · ${esc(qualityNames[s.quality])}</dd></div><div><dt>Opløsning</dt><dd>${info?`${info.width} × ${info.height}`:'Afventer analyse'}${s.maxHeight?` → maks. ${s.maxHeight}p`:''}</dd></div><div><dt>Original</dt><dd>${bytes(j.input_bytes)}</dd></div><div><dt>${j.state==='completed'?'Gemt resultat':'Beregnede outputstørrelse'}</dt><dd>${bytes(j.output_bytes)}</dd></div><div><dt>Lydspor</dt><dd>${info?info.audio:'—'} · ${s.audio==='copy'?'Bevares':'AAC stereo'}</dd></div><div><dt>Valgbare undertekstspor</dt><dd>${info?info.subtitles:'Afventer analyse'}</dd></div></dl><p class="detail-label">Kilde</p><code class="path-block">${esc(j.source)}</code>${j.state==='completed'&&j.output?`<p class="detail-label">Resultat</p><code class="path-block">${esc(j.output)}</code>`:''}<p class="detail-label">Fundne eksterne undertekster</p><code class="path-block">${j.bundle.subtitles.length?j.bundle.subtitles.map(x=>esc(base(x.path))+' · '+esc(x.language)).join('\n'):'Ingen eksterne SRT-filer'}</code>${j.log?`<details><summary>Vis FFmpeg-log</summary><pre class="log">${esc(j.log)}</pre></details>`:''}<div class="actions">${['queued','running','cancel_requested'].includes(j.state)?`<button class="button secondary" data-action="cancel" data-id="${esc(j.id)}">Annullér job</button>`:''}${['failed','skipped','cancelled'].includes(j.state)?`<button class="button primary" data-action="retry" data-id="${esc(j.id)}">Prøv igen med mappens aktuelle profil</button>`:''}</div>`);
+  html('job-detail',`<h3>${esc(base(j.source))}</h3><p class="hint">${esc(j.watch_name)} · ${new Date(j.created).toLocaleString('da-DK')}</p>${badge(j.state)}${j.error?`<div class="alert">${esc(j.error)}</div>`:''}<dl class="detail-grid"><div><dt>Profil</dt><dd>${codecName(s.codec)} · ${esc(qualityNames[s.quality])}</dd></div><div><dt>Opløsning</dt><dd>${info?`${info.width} × ${info.height}`:'Afventer analyse'}${s.maxHeight?` → maks. ${s.maxHeight}p`:''}</dd></div><div><dt>Original</dt><dd>${bytes(j.input_bytes)}</dd></div><div><dt>${j.state==='completed'?'Gemt resultat':'Beregnede outputstørrelse'}</dt><dd>${bytes(j.output_bytes)}</dd></div><div><dt>Lydspor</dt><dd>${info?info.audio:'—'} · ${s.audio==='copy'?'Bevares':'AAC stereo'}</dd></div><div><dt>Valgbare undertekstspor</dt><dd>${info?info.subtitles:'Afventer analyse'}</dd></div></dl><p class="detail-label">Kilde</p><code class="path-block">${esc(j.source)}</code>${j.state==='completed'&&j.output?`<p class="detail-label">Resultat</p><code class="path-block">${esc(j.output)}</code>`:''}<p class="detail-label">Fundne eksterne undertekster</p><code class="path-block">${j.bundle.subtitles.length?j.bundle.subtitles.map(x=>esc(base(x.path))+' · '+esc(x.language)).join('\n'):'Ingen eksterne SRT-filer'}</code>${j.log?`<details><summary>Vis FFmpeg-log</summary><pre class="log">${esc(j.log)}</pre></details>`:''}<div class="actions">${['queued','running','cancel_requested'].includes(j.state)?`<button class="button secondary" data-action="cancel" data-id="${esc(j.id)}">Annullér job</button>`:''}${removable(j)?`<button class="button danger" data-action="remove-job" data-id="${esc(j.id)}">Fjern fra listen</button>`:''}${['failed','skipped','cancelled'].includes(j.state)?`<button class="button primary" data-action="retry" data-id="${esc(j.id)}">Prøv igen med mappens aktuelle profil</button>`:''}</div>`);
 }
 document.addEventListener('click',async(event)=>{
   const close=event.target.closest('[data-close]');if(close){$(close.dataset.close).close();return;}
@@ -69,6 +105,7 @@ document.addEventListener('click',async(event)=>{
     else if(action==='toggle-watch'){const w=watches.find(w=>w.id===id);await api('/watches/'+id,'PUT',{enabled:!w.enabled});toast(w.enabled?'Mappe sat på pause. Et igangværende job færdiggøres.':'Overvågning aktiveret.');await refresh();}
     else if(action==='delete-watch'){if(await confirmAction('Fjern overvågningsmappe?','Mappen fjernes fra overvågning, og dens jobhistorik slettes. Originaler og færdige filer bevares.')){await api('/watches/'+id,'DELETE');toast('Overvågningsmappe fjernet.');await refresh();}}
     else if(action==='cancel'){if(await confirmAction('Annullér dette job?','Den midlertidige encoding slettes. Originalen bevares, og jobbet kan genstartes.')){await api('/jobs/'+id+'/cancel','POST',{});toast('Jobbet annulleres.');await refresh();}}
+    else if(action==='remove-job')await removeJobs([id]);
     else if(action==='retry'){await api('/jobs/'+id+'/retry','POST',{});toast('Jobbet er sat i kø igen.');await refresh();}
   }catch(e){if($('watch-dialog').open){$('watch-error').textContent=e.message;$('watch-error').hidden=false;}else toast(e.message);}
 });
@@ -76,6 +113,8 @@ $('watch-form').addEventListener('submit',async event=>{
   event.preventDefault();$('watch-save').disabled=true;$('watch-error').hidden=true;
   try{
     const id=$('watch-id').value,data={name:$('watch-name').value,path:$('watch-path').value,settings:{codec:$('codec').value,quality:$('quality').value,preset:$('preset').value,maxHeight:Number($('height').value),audio:$('audio').value,onlySmaller:$('smaller').checked,copySidecars:$('sidecars').checked}};
+    Object.assign(data.settings,Object.fromEntries(filterFields.map(([id,key])=>[key,Number($(id).value)])),{skipCodecs:['hevc','av1','h264'].filter(codec=>$('skip-'+codec).checked)});
+    data.applyFiltersToQueued=$('apply-filters').checked;
     await api('/watches'+(id?'/'+id:''),id?'PUT':'POST',data);$('watch-dialog').close();toast(id?'Indstillinger gemt.':'Overvågning startet. Filer afventer først stabilitet.');await refresh();
   }catch(e){$('watch-error').textContent=e.message;$('watch-error').hidden=false;}finally{$('watch-save').disabled=false;}
 });
@@ -85,7 +124,22 @@ $('browse-select').onclick=()=>{if(browserState?.path){$('watch-path').value=bro
 $('job-dialog').addEventListener('close',()=>detailId=null);
 $('pause').onclick=async()=>{try{const paused=!status.paused;await api('/queue','POST',{paused});toast(paused?'Køen er sat på pause. Det aktive job færdiggøres.':'Køen er genoptaget.');await refresh();}catch(e){toast(e.message);}};
 $('scan').onclick=async()=>{try{await api('/scan','POST',{});toast('Scanning startet. Filer kontrolleres stadig for stabilitet.');await refresh();}catch(e){toast(e.message);}};
-$('filter').onchange=()=>{offset=0;refresh();};let searchTimer;$('search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{offset=0;refresh();},300);};
+$('filter').onchange=()=>{selectedJobs.clear();syncSelection();offset=0;refresh();};let searchTimer;$('search').oninput=()=>{clearTimeout(searchTimer);selectedJobs.clear();syncSelection();searchTimer=setTimeout(()=>{offset=0;refresh();},300);};
 $('previous').onclick=()=>{offset=Math.max(0,offset-30);refresh();};$('next').onclick=()=>{offset+=30;refresh();};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 refresh();setInterval(()=>{if(!document.hidden)refresh();},2500);
+
+document.addEventListener('change',event=>{
+  const input=event.target.closest('[data-job-selection]');if(!input)return;
+  if(input.checked&&selectedJobs.size>=100){input.checked=false;toast('Du kan vælge op til 100 jobs ad gangen.');return;}
+  if(input.checked)selectedJobs.add(input.dataset.jobSelection);else selectedJobs.delete(input.dataset.jobSelection);
+  syncSelection();
+});
+$('select-page').onchange=()=>{
+  const eligible=visibleJobs.filter(removable),checked=$('select-page').checked;
+  if(checked&&new Set([...selectedJobs,...eligible.map(j=>j.id)]).size>100){toast('Du kan vælge op til 100 jobs ad gangen.');syncSelection();return;}
+  for(const j of eligible)if(checked)selectedJobs.add(j.id);else selectedJobs.delete(j.id);
+  syncSelection();
+};
+$('clear-selection').onclick=()=>{selectedJobs.clear();syncSelection();};
+$('remove-selected').onclick=async()=>{try{await removeJobs([...selectedJobs]);}catch(e){toast(e.message);await refresh();}};

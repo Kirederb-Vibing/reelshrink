@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { settings } from './config.mjs';
 
 export const ACTIVE = ['queued', 'running', 'cancel_requested'];
 export class Store {
@@ -25,14 +26,18 @@ export class Store {
         log TEXT, info TEXT, UNIQUE(watch_id, source, signature)
       );
       CREATE INDEX IF NOT EXISTS job_queue ON jobs(state,created);
-      PRAGMA user_version=1;`);
+      `);
+    if (!this.all('PRAGMA table_info(jobs)').some(c => c.name === 'hidden')) {
+      this.db.exec('ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
+    }
+    this.db.exec('PRAGMA user_version=2');
   }
   all(sql, ...p) { return this.db.prepare(sql).all(...p); }
   get(sql, ...p) { return this.db.prepare(sql).get(...p); }
   run(sql, ...p) { return this.db.prepare(sql).run(...p); }
   paused() { return this.get("SELECT value FROM settings WHERE key='paused'").value === 'true'; }
   setPaused(value) { this.run("UPDATE settings SET value=? WHERE key='paused'", String(value)); }
-  watches() { return this.all('SELECT * FROM watches ORDER BY created').map(w => ({ ...w, settings: JSON.parse(w.settings), enabled: Boolean(w.enabled) })); }
+  watches() { return this.all('SELECT * FROM watches ORDER BY created').map(w => ({ ...w, settings: settings(JSON.parse(w.settings)), enabled: Boolean(w.enabled) })); }
   watch(id) { return this.watches().find(w => w.id === id); }
   addWatch(name, directory, options) {
     const id = randomUUID();
@@ -46,11 +51,25 @@ export class Store {
     this.run(`UPDATE jobs SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`, ...entries.map(([, v]) => v ?? null), id);
   }
   job(id) {
-    const j = this.get('SELECT j.*, w.name AS watch_name FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.id=?', id);
+    const j = this.get('SELECT j.*, w.name AS watch_name FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.id=? AND j.hidden=0', id);
     return j ? this.parseJob(j) : null;
   }
   parseJob(j) {
-    return { ...j, bundle: JSON.parse(j.bundle), settings: JSON.parse(j.settings), info: j.info ? JSON.parse(j.info) : null };
+    return { ...j, bundle: JSON.parse(j.bundle), settings: settings(JSON.parse(j.settings)), info: j.info ? JSON.parse(j.info) : null };
+  }
+  removeJobs(ids) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))) throw new Error('Vælg mellem 1 og 100 jobs.');
+    ids = [...new Set(ids)];
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const jobs = ids.map(id => this.job(id));
+      if (jobs.some(j => !j)) throw Object.assign(new Error('Et valgt job findes ikke længere. Opdater listen.'), {status:404});
+      if (jobs.some(j => ['running','cancel_requested'].includes(j.state))) throw Object.assign(new Error('Annullér aktive jobs, og vent til de er stoppet, før du fjerner dem. Ingen jobs blev fjernet.'), {status:409});
+      // Retain signatures so scanning does not immediately recreate removed jobs.
+      for (const id of ids) this.run("UPDATE jobs SET hidden=1,state=CASE WHEN state='queued' THEN 'cancelled' ELSE state END,updated=? WHERE id=?", Date.now(), id);
+      this.db.exec('COMMIT');
+      return ids.length;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   enqueue(watch, source, relative, signature, bundle, size) {
     const id = randomUUID();

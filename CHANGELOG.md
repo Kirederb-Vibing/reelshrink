@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — 2026-09-09
+
+- Fjern-knap i jobliste og detaljer samt markering/fjernelse af op til 100 jobs.
+- Bevarer alle mediefiler og genkendelse af uændrede kilder efter fjernelse.
+- Filtre for minimum/maksimum GB, minimum varighed og kildehøjde samt fravalg af H.265, AV1 og H.264.
+- Valgfri anvendelse af filtre på eksisterende kø, med synlige årsager til overspringning.
+- Automatisk databaseopgradering fra v0.1 og bagudkompatible standardindstillinger.
+- Tests af grænser, migration, filbevaring, samlet fjernelse og køfiltrering.
+
 ## 0.1.0 — 2026-09-08
 
 Første version klargjort til udgivelse.

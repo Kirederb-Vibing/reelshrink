@@ -4,7 +4,7 @@ En lille, selvhostet tjeneste til at komprimere film og serier med en dansk web-
 
 ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede MKV-filer i en separat outputmappe. Den sletter eller overskriver aldrig dine originaler. Video, lyd, scanning, database og GUI kører i én Docker-container.
 
-**Version:** 0.1.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
+**Version:** 0.2.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
 
 > Første udgivelse. [GitHub-repository](https://github.com/Kirederb-Vibing/reelshrink) · [Buildstatus](https://github.com/Kirederb-Vibing/reelshrink/actions/workflows/publish.yml). Image: `ghcr.io/kirederb-vibing/reelshrink:latest`. Imaget er tilgængeligt, når publiceringsworkflowet er grønt; kontroller pakkens adgang ved første installation.
 
@@ -20,6 +20,8 @@ ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede M
 - Eksisterende undertekstspor, kapitler, metadata og vedhæftninger bevares; relevante tekstformater konverteres til SRT ved behov.
 - Valgfri kopiering af tilhørende SRT, NFO og billeder til output.
 - Pause køen, annullér jobs og genstart fejlede/annullerede/oversprungne jobs.
+- Fjern enkeltjobs eller markér op til 100 jobs på tværs af sider og fjern dem samlet.
+- Filtre pr. mappe: minimum/maksimum filstørrelse, minimum varighed/kildehøjde og fravalg af eksisterende codecs.
 - Vedvarende kø, kontrol af filstabilitet, versionsgenkendelse og oprydning af midlertidige resultater.
 - Gem som standard kun resultatet, hvis videofilen er mindre end originalen.
 - Fuld dekodningskontrol af færdig video og lyd før publicering i outputmappen.
@@ -157,7 +159,27 @@ CRF er kvalitetsstyring, ikke en målstørrelse. Tallene er ikke direkte sammenl
 
 ## Konfiguration
 
-Profiler vælges pr. mappe i GUI'en. De gemmes i SQLite. Jobs tager en kopi af profilen, når de sættes i kø; senere ændringer gælder nye jobs og jobs, du aktivt genstarter. Tabellen nedenfor viser miljøvariabler til selve tjenesten.
+### Filtre og oprydning i køen (fra v0.2)
+
+Åbn **Overvågede mapper → Indstillinger → Filtre**. Alle filtre er slået fra som standard, også efter opgradering fra v0.1.
+
+| Filter | Eksempel | Adfærd |
+| --- | --- | --- |
+| Minimum filstørrelse | `5` GB | Spring filer under 5 GB over |
+| Maksimum filstørrelse | `50` GB | Spring filer over 50 GB over |
+| Minimum varighed | `10` minutter | Spring fx korte klip/trailere over |
+| Minimum kildehøjde | `720` pixels | Spring lavere kilder over; ændrer ikke opløsningen |
+| Fravalgte videoformater | H.265/HEVC og AV1 | Spring allerede komprimerede kilder med disse codecs over |
+
+GB i filtrene er decimal: **1 GB = 1.000.000.000 bytes**. Størrelsesvisningen i joblisten bruger GiB (1.073.741.824 bytes). En fil på præcis minimum/maksimum accepteres. `0` deaktiverer grænsen. Filen springes over, hvis ét filter udelukker den; årsagen vises i listen og jobdetaljerne. Codec alene siger ikke noget sikkert om kvalitet eller mulig besparelse.
+
+Størrelse kontrolleres efter filstabilitet ved scanning og igen før encoding. Varighed, højde og codec kontrolleres med FFprobe, når jobbet når frem i køen, før encoding starter. **Anvend filtrene på ventende jobs** er slået til som standard ved redigering: størrelsesfiltre anvendes straks, mens metadatafiltre kontrolleres ved jobstart. Ventende jobs beholder deres øvrige encoding-profil. Aktive jobs ændres ikke. Slå valget fra for kun at ændre filtre på fremtidige jobs. Allerede oversprungne jobs kan genstartes med **Prøv igen**, når filtrene er rettet.
+
+**Fjern** og **Fjern valgte** rydder poster fra kø/historik, og ventende jobs tages ud af køen. Originaler, SRT og færdige outputfiler bevares. Aktive/annullerende jobs kan først fjernes, når de er stoppet. Vælg alle på den synlige side, eller markér enkelte jobs på tværs af sider (maks. 100 ad gangen). Ændring af søgning eller statusfilter nulstiller markeringen. En batch fjernes enten samlet eller slet ikke.
+
+ReelShrink gemmer registreringen af fjernede jobs, så samme uændrede kilde ikke dukker op igen ved næste scanning/genstart. Ændringer i video eller tilhørende filer kan oprette en ny revision. Fjernede poster er ikke længere med i den viste statistik. Der er ingen fortryd-knap. Hvis en uændret fil skal behandles på ny, kan du lægge en kopi i en anden overvåget kildeplacering; fjernelse og gentilføjelse af hele overvågningsmappen nulstiller også dens historik.
+
+Profiler vælges pr. mappe i GUI'en. De gemmes i SQLite. Jobs tager en kopi af profilen, når de sættes i kø; senere profilændringer gælder nye jobs og jobs, du aktivt genstarter. Filtre kan desuden anvendes på den eksisterende ventende kø som beskrevet ovenfor. Tabellen nedenfor viser miljøvariabler til selve tjenesten.
 
 | Variabel | Standard | Betydning |
 | --- | --- | --- |
@@ -218,7 +240,7 @@ Se [docs/PUBLISHING.md](docs/PUBLISHING.md) for første udgivelse. Workflowet `p
 1. Kører integrationstests med rigtig FFmpeg, validerer Compose og tester den byggede container.
 2. Bygger `linux/amd64` og `linux/arm64`.
 3. Udgiver til `ghcr.io/<ejer>/<repo>` med GitHubs egen `GITHUB_TOKEN`; der skal ikke gemmes en personlig token i kildekoden.
-4. Ved push til `main`: `latest` og `sha-…`. Ved tag `v0.1.0`: `0.1.0`, `0.1` og `sha-…`.
+4. Ved push til `main`: `latest` og `sha-…`. Ved tag `v0.2.0`: `0.2.0`, `0.1` og `sha-…`.
 5. Vedhæfter OCI-metadata, provenance og SBOM.
 
 Et offentligt repository gør ikke nødvendigvis den tilhørende GHCR-pakke offentlig automatisk. Kontroller pakkens synlighed under GitHub Packages, hvis imaget skal kunne hentes uden login.

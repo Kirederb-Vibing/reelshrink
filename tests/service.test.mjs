@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { config, settings, mediaPath } from '../app/config.mjs';
+import { config, settings, mediaPath, filterReason } from '../app/config.mjs';
 import { Store } from '../app/store.mjs';
 import { Engine } from '../app/engine.mjs';
 import { bundleFor, signatureFor, discover, probe, run } from '../app/media.mjs';
@@ -196,4 +196,125 @@ test('API enforces authentication, same-origin writes and media boundaries; UI a
   assert.equal((await (await request('/api/config')).json()).password,undefined);
   const pause=await request('/api/queue',{method:'POST',headers:{'X-ReelShrink':'1','Content-Type':'application/json'},body:JSON.stringify({paused:true})});
   assert.equal(pause.status,200);assert.equal((await (await request('/api/status')).json()).paused,true);
+});
+
+
+test('filter thresholds use decimal GB, inclusive bounds and validated options',()=>{
+  assert.equal(filterReason(settings({minSizeGB:5,maxSizeGB:10}),5e9),null);
+  assert.match(filterReason(settings({minSizeGB:5}),5e9-1),/minimum/);
+  assert.equal(filterReason(settings({maxSizeGB:5}),5e9),null);
+  assert.match(filterReason(settings({maxSizeGB:5}),5e9+1),/maksimum/);
+  const media={duration:60,video:{height:720,codec_name:'hevc'}};
+  assert.equal(filterReason(settings({minDurationMinutes:1,minSourceHeight:720}),1,media),null);
+  assert.match(filterReason(settings({skipCodecs:['hevc','av1']}),1,media),/codec/);
+  for(const value of [-1,NaN,Infinity,'5',null])assert.throws(()=>settings({minSizeGB:value}));
+  for(const invalid of [{minSizeGB:6,maxSizeGB:5},{minSourceHeight:720.5},{skipCodecs:['unsupported']},{skipCodecs:'hevc'}])assert.throws(()=>settings(invalid));
+  assert.deepEqual(settings().skipCodecs,[]);
+});
+
+test('size filters skip at scan time, never probe or encode, and deduplicate scans',async t=>{
+  const e=await env(t),source=await fixture(e),before=await hash(source);
+  const {store,engine}=await engineFor(t,e,{minSizeGB:5});
+  e.c.ffprobe='/nonexistent/ffprobe';
+  await scanStable(engine);
+  const id=store.get('SELECT id FROM jobs').id;
+  assert.equal(store.job(id).state,'skipped');assert.match(store.job(id).error,/5 GB/);
+  assert.equal(store.job(id).info,null);
+  await engine.scan();assert.equal(store.all('SELECT id FROM jobs').length,1);
+  await engine.retry(id);await engine.workerPromise;
+  assert.equal(store.job(id).state,'skipped');assert.match(store.job(id).error,/Filter/);
+  assert.equal(await hash(source),before);assert.deepEqual(await fs.readdir(engine.stageRoot),[]);
+});
+
+test('duration, source height and existing codec filters skip before encoding',async t=>{
+  for(const [options,reason]of [[{minDurationMinutes:1},/minutter/],[{minSourceHeight:720},/pixels/],[{skipCodecs:['h264']},/codec/]]){
+    await t.test(JSON.stringify(options),async t=>{
+      const e=await env(t),source=await fixture(e,{lowQuality:true}),before=await hash(source);
+      const {store,engine}=await engineFor(t,e,options);
+      await scanStable(engine);e.c.ffmpeg='/nonexistent/ffmpeg';await finish(engine);
+      const job=store.job(store.get('SELECT id FROM jobs').id);
+      assert.equal(job.state,'skipped',job.error);assert.match(job.error,reason);
+      assert.equal(job.output,null);assert.equal(await hash(source),before);
+      assert.deepEqual(await fs.readdir(engine.stageRoot),[]);
+    });
+  }
+});
+
+test('v0.1 database migration and removal preserve signatures across restart',async t=>{
+  const e=await env(t),source=await fixture(e),before=await hash(source);
+  // Recreate the old schema without the new column, with existing data/settings.
+  let store=new Store(e.c.configDir);
+  const legacy={codec:'hevc',quality:'balanced',preset:'medium',maxHeight:0,audio:'copy',onlySmaller:true,copySidecars:true};
+  const watch=store.addWatch('Legacy',e.media,legacy),bundle=await bundleFor(source);
+  const signature=await signatureFor(source,bundle);
+  const id=store.enqueue(watch,source,path.basename(source),signature,bundle,(await fs.stat(source)).size);
+  store.db.exec('ALTER TABLE jobs DROP COLUMN hidden; PRAGMA user_version=1;');store.close();
+  store=new Store(e.c.configDir);
+  assert.equal(store.watch(watch.id).settings.minSizeGB,0);
+  assert.equal(store.job(id).settings.minDurationMinutes,0);
+  assert.equal(store.removeJobs([id,id]),1);assert.equal(store.job(id),null);
+  store.close();store=new Store(e.c.configDir);const engine=new Engine(e.c,store);
+  t.after(async()=>{await engine.stop();store.close();});await engine.init();await scanStable(engine);
+  assert.equal(store.all('SELECT id FROM jobs').length,1);assert.equal(store.job(id),null);
+  engine.tick();assert.equal(engine.active,null);assert.equal(await hash(source),before);
+  await fs.writeFile(source.slice(0,-4)+'.da.srt','1\n00:00:00,000 --> 00:00:01,000\nNy undertekst\n');
+  await scanStable(engine);assert.equal(store.get('SELECT COUNT(*) AS n FROM jobs WHERE hidden=0').n,1,'a changed source bundle may create a new revision');
+});
+
+test('job removal API is atomic, protected and preserves original/output files',async t=>{
+  const e=await env(t),source=await fixture(e),before=await hash(source);
+  e.c.username='tester';e.c.password='test-password';
+  const service=await createService(e.c,{background:false});t.after(()=>service.close());
+  await new Promise(r=>service.server.listen(0,'127.0.0.1',r));
+  const origin='http://127.0.0.1:'+service.server.address().port;
+  const headers={'Content-Type':'application/json','X-ReelShrink':'1',Authorization:'Basic '+Buffer.from('tester:test-password').toString('base64')};
+  const request=(p,method='GET',data)=>fetch(origin+'/api'+p,{method,headers,body:data===undefined?undefined:JSON.stringify(data)});
+  const {store,engine}=service,watch=store.addWatch('API',e.media,settings());
+  await scanStable(engine);await finish(engine);
+  const completed=store.job(store.get('SELECT id FROM jobs').id);assert.equal(completed.state,'completed',completed.error);
+  const outputHash=await hash(completed.output);
+  const queued=store.enqueue(watch,source,'Other.mkv','queued-signature',completed.bundle,completed.input_bytes);
+  const active=store.enqueue(watch,source,'Active.mkv','active-signature',completed.bundle,completed.input_bytes);
+  store.updateJob(active,{state:'running'});
+  const payload={ids:[completed.id,queued,active]};
+  assert.equal((await fetch(origin+'/api/jobs/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).status,401);
+  assert.equal((await fetch(origin+'/api/jobs/remove',{method:'POST',headers:{Authorization:headers.Authorization,'Content-Type':'application/json'},body:JSON.stringify(payload)})).status,403);
+  assert.equal((await request('/jobs/remove','POST',payload)).status,409);
+  assert.ok(store.job(completed.id));assert.ok(store.job(queued),'failed batch must not partially remove jobs');
+  assert.equal((await request('/jobs/remove','POST',{ids:[]})).status,400);
+  assert.equal((await request('/jobs/remove','POST',{ids:Array(101).fill(queued)})).status,400);
+  assert.equal((await request('/jobs/remove','POST',{ids:[queued,'00000000-0000-0000-0000-000000000000']})).status,404);assert.ok(store.job(queued));
+  const response=await request('/jobs/remove','POST',{ids:[completed.id,queued]});assert.equal(response.status,200);assert.equal((await response.json()).removed,2);
+  assert.equal((await request('/jobs/'+completed.id)).status,404);
+  assert.equal((await request('/jobs/'+completed.id+'/retry','POST',{})).status,400);
+  assert.equal((await (await request('/jobs')).json()).total,1);
+  const status=await (await request('/status')).json();assert.equal(status.counts.completed,undefined);assert.equal(status.savedBytes,0);
+  assert.equal(await hash(source),before);assert.equal(await hash(completed.output),outputHash);
+  store.updateJob(active,{state:'cancelled'});
+  assert.equal((await request('/jobs/'+active,'DELETE')).status,200);
+  assert.equal((await (await request('/jobs')).json()).total,0);
+});
+
+test('watch filters update existing queued jobs atomically without changing encoding profiles',async t=>{
+  const e=await env(t),source=await fixture(e);
+  const service=await createService(e.c,{background:false});t.after(()=>service.close());
+  await new Promise(r=>service.server.listen(0,'127.0.0.1',r));
+  const origin='http://127.0.0.1:'+service.server.address().port;
+  const {store,engine}=service,watch=store.addWatch('API',e.media,settings({codec:'h264'}));
+  await scanStable(engine);const id=store.get('SELECT id FROM jobs').id;
+  const edit=async data=>fetch(origin+'/api/watches/'+watch.id,{method:'PUT',headers:{'Content-Type':'application/json','X-ReelShrink':'1'},body:JSON.stringify(data)});
+  assert.equal((await edit({settings:{minSizeGB:5,codec:'hevc'},applyFiltersToQueued:false})).status,200);
+  assert.equal(store.job(id).state,'queued');assert.equal(store.job(id).settings.minSizeGB,0);
+  assert.equal((await edit({settings:{minSizeGB:5},applyFiltersToQueued:true})).status,200);
+  assert.equal(store.job(id).state,'skipped');assert.equal(store.job(id).settings.codec,'h264');
+  assert.match(store.job(id).error,/5 GB/);assert.equal(store.watch(watch.id).settings.codec,'hevc');
+  const previous=store.watch(watch.id).settings;
+  assert.equal((await edit({settings:{maxSizeGB:1}})).status,400);
+  assert.deepEqual(store.watch(watch.id).settings,previous);
+  assert.equal((await edit({settings:null})).status,400);
+  // Queued metadata filters are evaluated by the worker before invoking FFmpeg.
+  assert.equal((await edit({settings:{minSizeGB:0,minDurationMinutes:1}})).status,200);
+  await engine.retry(id);await engine.workerPromise;
+  assert.equal(store.job(id).state,'skipped');assert.match(store.job(id).error,/minutter/);
+  assert.ok(await fs.stat(source));
 });

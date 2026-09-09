@@ -17,6 +17,8 @@ Samme origin og port som GUI'en. JSON-svar. HTTP Basic gælder alle endpoints un
 | POST | `/api/queue` | Body `{"paused": true}` eller `false` |
 | GET | `/api/jobs` | Søg/filtrér/paginér jobs |
 | GET | `/api/jobs/{id}` | Detaljer inklusive begrænset FFmpeg-log |
+| DELETE | `/api/jobs/{id}` | Fjern posten; mediefiler og kildegenkendelse bevares |
+| POST | `/api/jobs/remove` | Fjern 1–100 poster samlet; body `{"ids":["uuid", "uuid"]}` |
 | POST | `/api/jobs/{id}/cancel` | Annullér; body `{}` |
 | POST | `/api/jobs/{id}/retry` | Genstart med mappens nuværende profil; body `{}` |
 
@@ -34,3 +36,16 @@ curl -X POST http://localhost:8080/api/watches \
 Ved aktiveret Basic-login kan curl spørge om password med `-u BRUGERNAVN`, så password ikke skrives i shell-historikken.
 
 Fejl svarer med `{"error":"beskrivelse"}`. API'et tilbyder ikke fil-upload, mediedownload, vilkårlige FFmpeg-argumenter eller shell-kørsel. Den komplette schema-/API-kontrakt er endnu ikke versionsopdelt i v0.1; se kildekoden ved integrationer.
+
+
+## Filtre (v0.2)
+
+`settings` understøtter `minSizeGB`, `maxSizeGB`, `minDurationMinutes`, `minSourceHeight` (tal; standard 0) og `skipCodecs` (liste af `hevc`, `av1`, `h264`; standard tom). 0 slår en grænse fra. GB er decimal, ikke GiB. Negative/ikke-numeriske værdier, maksimum under minimum og ukendte codecs afvises. Minimumhøjde skal være et helt tal.
+
+`PUT /api/watches/{id}` accepterer delvise settings og `applyFiltersToQueued` (boolean, standard true). Kun filterfelter anvendes på eksisterende ventende jobs; deres øvrige encoding-indstillinger bevares. Aktive og allerede afsluttede jobs ændres ikke. Størrelsesfiltre anvendes straks; metadatafiltre evalueres ved jobstart. Ved false gælder ændringen nye/genstartede jobs.
+
+## Fjernelse (v0.2)
+
+Fjernelse skjuler jobbet, stopper et ventende job og bevarer kilde-signaturen som beskyttelse mod genoprettelse ved scanning. Ingen input-/outputfiler slettes. Skjulte jobs udelades fra lister/statistik og giver 404 ved detailopslag. `/retry` genopliver dem ikke.
+
+En batch afvises uden ændringer, hvis et ID mangler (404), et job kører/annulleres (409), eller input er ugyldigt (400). Dubletter tælles kun én gang. Succes: `{"removed":2}`. Samme login-/CSRF-beskyttelse som andre skrivende endpoints.

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
-import { config, mediaPath, inside, settings, VERSION } from './config.mjs';
+import { config, mediaPath, inside, settings, FILTER_DEFAULTS, filterReason, VERSION } from './config.mjs';
 import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
 import { run } from './media.mjs';
@@ -63,8 +63,8 @@ export async function createService(c,{background=true}={}) {
       }
       if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
       if(p==='/api/status'&&method==='GET') {
-        const counts=Object.fromEntries(store.all('SELECT state,COUNT(*) AS count FROM jobs GROUP BY state').map(r=>[r.state,r.count]));
-        const saved=store.get("SELECT COALESCE(SUM(saved_bytes),0) AS bytes FROM jobs WHERE state='completed'").bytes;
+        const counts=Object.fromEntries(store.all('SELECT state,COUNT(*) AS count FROM jobs WHERE hidden=0 GROUP BY state').map(r=>[r.state,r.count]));
+        const saved=store.get("SELECT COALESCE(SUM(saved_bytes),0) AS bytes FROM jobs WHERE state='completed' AND hidden=0").bytes;
         const disk=await fs.statfs(c.outputRoot);
         return json(res,200,{paused:store.paused(),scanning:engine.scanning,counts,savedBytes:saved,outputFreeBytes:disk.bavail*disk.bsize,active:engine.active?store.job(engine.active.id):null});
       }
@@ -94,7 +94,22 @@ export async function createService(c,{background=true}={}) {
         const data=await body(req),name=String(data.name??watch.name).trim();
         if(!name||name.length>60)fail('Navnet skal være mellem 1 og 60 tegn.');
         const enabled=data.enabled??watch.enabled;if(typeof enabled!=='boolean')fail('Ugyldig aktivering.');
-        store.run('UPDATE watches SET name=?,settings=?,enabled=? WHERE id=?',name,JSON.stringify(settings(data.settings??watch.settings)),Number(enabled),id);
+        if(data.settings!==undefined&&(!data.settings||typeof data.settings!=='object'||Array.isArray(data.settings)))fail('Ugyldige indstillinger.');
+        const options=settings({...watch.settings,...data.settings});
+        const apply=data.applyFiltersToQueued??true;
+        if(typeof apply!=='boolean')fail('Ugyldigt valg for eksisterende kø.');
+        store.db.exec('BEGIN IMMEDIATE');
+        try {
+          store.run('UPDATE watches SET name=?,settings=?,enabled=? WHERE id=?',name,JSON.stringify(options),Number(enabled),id);
+          if(data.settings && apply) {
+            const filters=Object.fromEntries(Object.keys(FILTER_DEFAULTS).map(k=>[k,options[k]]));
+            for(const row of store.all("SELECT id,settings,input_bytes FROM jobs WHERE watch_id=? AND state='queued' AND hidden=0",id)) {
+              const updated={...JSON.parse(row.settings),...filters},reason=filterReason(updated,row.input_bytes);
+              store.updateJob(row.id,{settings:JSON.stringify(updated),...(reason?{state:'skipped',error:reason}:{})});
+            }
+          }
+          store.db.exec('COMMIT');
+        } catch(error) {store.db.exec('ROLLBACK');throw error;}
         engine.scan();return json(res,200,store.watch(id));
       }
       if(watchMatch&&method==='DELETE') {
@@ -108,7 +123,7 @@ export async function createService(c,{background=true}={}) {
         const state=url.searchParams.get('state')||'all',q=(url.searchParams.get('q')||'').slice(0,150);
         const limit=Math.min(100,Math.max(1,Number(url.searchParams.get('limit'))||30)),offset=Math.max(0,Number(url.searchParams.get('offset'))||0);
         if(!Number.isInteger(limit)||!Number.isInteger(offset))fail('Ugyldig side.');
-        const clauses=[],params=[];
+        const clauses=['j.hidden=0'],params=[];
         if(state==='active') clauses.push("j.state IN ('queued','running','cancel_requested')");
         else if(state!=='all') {if(!['completed','skipped','failed','cancelled'].includes(state))fail('Ugyldig status.');clauses.push('j.state=?');params.push(state);}
         if(q) {clauses.push('j.relative LIKE ?');params.push('%'+q+'%');}
@@ -120,6 +135,11 @@ export async function createService(c,{background=true}={}) {
         return json(res,200,{items,total,limit,offset});
       }
       const jobMatch=p.match(/^\/api\/jobs\/([a-f0-9-]+)(?:\/(cancel|retry))?$/);
+      if(p==='/api/jobs/remove'&&method==='POST') {
+        const data=await body(req);
+        return json(res,200,{removed:store.removeJobs(data.ids)});
+      }
+      if(jobMatch&&method==='DELETE'&&!jobMatch[2]) return json(res,200,{removed:store.removeJobs([jobMatch[1]])});
       if(jobMatch&&method==='GET'&&!jobMatch[2]) {const job=store.job(jobMatch[1]);if(!job)fail('Jobbet findes ikke.',404);return json(res,200,job);}
       if(jobMatch&&method==='POST') {
         await body(req);
