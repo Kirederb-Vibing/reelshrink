@@ -4,7 +4,7 @@ En lille, selvhostet tjeneste til at komprimere film og serier med en dansk web-
 
 ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede MKV-filer i en separat outputmappe. Valgfri tilbageflytning sætter resultatet tilbage i biblioteket og gemmer originalen som `.OLD` til manuel sletning. Video, lyd, scanning, database og GUI kører i én Docker-container.
 
-**Version:** 0.3.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
+**Version:** 0.4.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
 
 > Første udgivelse. [GitHub-repository](https://github.com/Kirederb-Vibing/reelshrink) · [Buildstatus](https://github.com/Kirederb-Vibing/reelshrink/actions/workflows/publish.yml). Image: `ghcr.io/kirederb-vibing/reelshrink:latest`. Imaget er tilgængeligt, når publiceringsworkflowet er grønt; kontroller pakkens adgang ved første installation.
 
@@ -26,6 +26,14 @@ ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede M
 - Gem som standard kun resultatet, hvis videofilen er mindre end originalen.
 - Fuld dekodningskontrol af færdig video og lyd før publicering i outputmappen.
 - Image-opskrift og GHCR-workflow for `linux/amd64` og `linux/arm64`.
+
+## Lokalt arbejdsarkiv til NAS og lokale biblioteker (v0.4)
+
+Fanen **Arbejdsarkiv** henter valgte film/afsnit til en lokal arbejdsdisk og viser fremdrift i bytes og procent. Når arbejdsarkivet er aktiveret, bruger **encoding og tilbageflytning kun lokale arbejdsmapper**. Efter lokal tilbageflytning og godkendelse i OLD-køen kan du vælge **Send valgte til server** med en separat statusbar. Intet sendes automatisk til NAS'en.
+
+Hvert emne husker sit drev, originalmappe, præcise filstier og tilhørende filer. Nye filer kopieres og checksumkontrolleres før erstatning; uændrede sidefiler og andre emner i samme mappe bevares. Afbrudte overførsler kan genoptages. Efter afsendelse kan du frigøre den lokale plads manuelt.
+
+Brug **[compose.archive.yaml](compose.archive.yaml)** og **[archive.env.example](archive.env.example)**. Drevet erklæres som `network` eller `local` pr. mount i `.env`. Læs **[opsætning, opgradering, arbejdsgang og fejlhåndtering](docs/work-archive.md)**. Eksisterende opsætninger fortsætter i deres hidtidige tilstand, indtil `WORK_ROOT` sættes.
 
 ## Tilbageflytning & OLD-kø (v0.3)
 

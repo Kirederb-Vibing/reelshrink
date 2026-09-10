@@ -52,6 +52,7 @@ async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
     data = await api('');
+    $('archive-note').textContent = data.workRoot ? 'Arbejdsarkiv er aktivt. Denne fane flytter kun lokalt. Godkend resultatet i OLD-køen, og vælg derefter Send til server i Arbejdsarkiv-fanen.' : '';
     if (!initialized) {
       $('automatic').checked = data.options.automatic; $('from').value = data.options.from; $('to').value = data.options.to;
       $('input-roots').innerHTML = data.inputRoots.map(p => `<option value="${esc(p)}"></option>`).join('');

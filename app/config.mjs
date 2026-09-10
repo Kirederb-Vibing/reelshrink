@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 export function config(env = process.env) {
   const integer = (key, fallback, min, max) => {
     const value = Number(env[key] ?? fallback);
@@ -24,6 +24,19 @@ export function config(env = process.env) {
     ffmpeg: env.FFMPEG_PATH || 'ffmpeg',
     ffprobe: env.FFPROBE_PATH || 'ffprobe',
   };
+  c.workRoot = env.WORK_ROOT ? path.resolve(env.WORK_ROOT) : null;
+  c.archiveDrives = [];
+  if (c.workRoot) {
+    if ((env.WORK_DRIVE_TYPE || 'local') !== 'local') throw new Error('Arbejdsarkivet skal være et lokalt drev (WORK_DRIVE_TYPE=local).');
+    const types = (env.MEDIA_DRIVE_TYPES || c.mediaRoots.map(() => 'local').join(':')).split(':');
+    if (types.length !== c.mediaRoots.length || types.some(t => !['local','network'].includes(t))) throw new Error('MEDIA_DRIVE_TYPES skal angive local eller network for hver MEDIA_ROOTS, i samme rækkefølge.');
+    c.archiveDrives = c.mediaRoots.map((root,i) => ({ path: root, type: types[i], name: path.basename(root) }));
+    const roots = [...c.mediaRoots, c.configDir, c.workRoot];
+    if (roots.some((r,i) => roots.slice(i+1).some(other => inside(r,other) || inside(other,r)))) throw new Error('Biblioteksdrev, arbejdsarkiv og konfiguration må ikke overlappe.');
+    c.mediaRoots = [path.join(c.workRoot,'library')];
+    c.outputRoot = path.join(c.workRoot,'encoded');
+    c.returnInputRoots = [path.join(c.workRoot,'incoming')];
+  }
   if (Boolean(c.username) !== Boolean(c.password)) throw new Error('Angiv både AUTH_USERNAME og AUTH_PASSWORD (eller AUTH_PASSWORD_FILE).');
   for (const root of c.mediaRoots) {
     if (inside(c.outputRoot, root) || inside(root, c.outputRoot)) throw new Error('Input og output må ikke overlappe.');
@@ -34,6 +47,9 @@ export function config(env = process.env) {
     if ([c.configDir, c.outputRoot, ...c.mediaRoots].some(other => inside(root, other) || inside(other, root))) throw new Error('Ekstra fra-mapper skal være adskilt fra medier, output og konfiguration.');
   }
   return c;
+}
+export function processingPath(candidate, c) {
+  if (c.workRoot && !c.mediaRoots.some(root => inside(path.resolve(candidate),root))) throw new Error('Arbejdsarkiv er aktiveret: behandling må kun bruge /work/library. Hent emnet i fanen Arbejdsarkiv.');
 }
 export function inside(candidate, root) {
   const rel = path.relative(root, candidate);

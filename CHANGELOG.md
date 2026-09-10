@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Lokal arbejdsarkivtilstand med separat hente-/sendefane og bytebaserede statusbarer.
+- Vedvarende originalstier, filoversigter og genoptagelige overførselsjournaler.
+- Lokal encoding og tilbageflytning; serveroverførsel kun af valgte, OLD-godkendte emner.
+- Checksumkontrol før originaler erstattes; uændrede sidefiler og andre afsnit bevares.
+- Manuel lokal oprydning efter kontrolleret afsendelse.
+- Per-drev `network`/`local`-konfiguration, Compose-eksempel og migrationsvejledning.
+- Gamle direkte biblioteksovervågninger og ventende jobs deaktiveres ved aktivering.
+
 ## 0.3.0 — 2026-09-10
 
 - Tilbageflytning som integreret side: præcist jobmatch, outputovervågning og manuel fra-/tilsammenligning af film og serieafsnit.

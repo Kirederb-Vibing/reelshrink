@@ -26,6 +26,8 @@ jobs:
           docker compose --env-file return.env.example -f compose.return.yaml config --quiet
           docker compose --env-file return.env.example -f compose.return.yaml -f compose.build.yaml config --quiet
           docker compose --env-file .env.example -f compose.yaml -f compose.build.yaml config --quiet
+          docker compose --env-file archive.env.example -f compose.archive.yaml config --quiet
+          docker compose --env-file archive.env.example -f compose.archive.yaml -f compose.build.yaml config --quiet
       - name: Build and smoke-test non-root container
         run: |
           docker build --tag reelshrink:test .
@@ -34,6 +36,18 @@ jobs:
           for attempt in $(seq 1 45); do
             if docker exec reelshrink-smoke node app/healthcheck.mjs; then
               test "$(docker exec reelshrink-smoke id -u)" = '1000'
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Smoke-test local archive mode
+        run: |
+          docker run --detach --name reelshrink-archive-smoke --tmpfs /work:rw,uid=1000,gid=1000 -e WORK_ROOT=/work -e MEDIA_ROOTS=/media -e MEDIA_DRIVE_TYPES=local reelshrink:test
+          trap 'docker logs reelshrink-archive-smoke; docker rm -f reelshrink-archive-smoke' EXIT
+          for attempt in $(seq 1 45); do
+            if docker exec reelshrink-archive-smoke node app/healthcheck.mjs; then
+              docker exec reelshrink-archive-smoke node --input-type=module -e "const r=await fetch('http://localhost:8080/api/archive');const d=await r.json();if(!d.enabled||d.workRoot!=='/work')process.exit(1)"
               exit 0
             fi
             sleep 1
