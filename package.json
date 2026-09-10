@@ -1,6 +1,6 @@
 {
   "name": "reelshrink",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Self-hosted video compression with folder watching and selectable subtitles",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node app/server.mjs",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
-    "check": "node --check app/server.mjs && node --check app/engine.mjs && node --check app/media.mjs && node --check app/static/app.js"
+    "check": "node --check app/server.mjs && node --check app/engine.mjs && node --check app/media.mjs && node --check app/static/app.js && node --check app/returner.mjs && node --check app/static/returns.js"
   },
   "license": "MIT"
 }

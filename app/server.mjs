@@ -6,6 +6,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { config, mediaPath, inside, settings, FILTER_DEFAULTS, filterReason, VERSION } from './config.mjs';
 import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
+import { Returner } from './returner.mjs';
 import { run } from './media.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
@@ -31,9 +32,17 @@ export async function createService(c,{background=true}={}) {
     let real;try {real=await fs.realpath(root);} catch(e) {if(e.code==='ENOENT')continue;throw e;}
     if(inside(c.outputRoot,real)||inside(real,c.outputRoot)||inside(c.configDir,real)||inside(real,c.configDir)) throw new Error('Monteringerne for input, output og konfiguration må ikke overlappe.');
   }
+  for(const root of c.returnInputRoots) {
+    const real=await fs.realpath(root).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
+    if(!real)continue;
+    const others=await Promise.all([c.configDir,c.outputRoot,...c.mediaRoots].map(r=>fs.realpath(r).catch(()=>r)));
+    if(others.some(other=>inside(real,other)||inside(other,real)))throw new Error('Ekstra fra-mapper overlapper en anden montering.');
+  }
   const store=new Store(c.configDir),engine=new Engine(c,store);
   await engine.init();
-  if(background) engine.start();
+  const returner=new Returner(c,store,engine);
+  await returner.init();
+  if(background) {engine.start();returner.start();}
   const json=(res,status,value)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   const server=http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
@@ -56,12 +65,25 @@ export async function createService(c,{background=true}={}) {
           if(origin.host!==req.headers.host)fail('Forespørgsler fra andre websites er ikke tilladt.',403);
         }
       }
-      const assets={'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      const assets={'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(assets[p]&&['GET','HEAD'].includes(method)) {
         const [file,type]=assets[p];const content=await fs.readFile(path.join(staticDir,file));
         res.writeHead(200,{'content-type':type+'; charset=utf-8'});return res.end(method==='HEAD'?undefined:content);
       }
       if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
+      if(p==='/api/returns'&&method==='GET') return json(res,200,returner.status());
+      if(p==='/api/returns/settings'&&method==='PUT') return json(res,200,await returner.setOptions(await body(req)));
+      if(p==='/api/returns/scan'&&method==='POST') {await body(req);returner.scan();return json(res,202,{ok:true});}
+      if(p==='/api/returns/move'&&method==='POST') {returner.enqueue((await body(req)).ids);return json(res,202,{ok:true});}
+      if(p==='/api/returns/delete-old'&&method==='POST') {const data=await body(req);return json(res,200,await returner.deleteOld(data.ids,data.confirmation));}
+      const returnMatch=p.match(/^\/api\/returns\/([a-f0-9-]+)\/(choose|restore|retry)$/);
+      if(returnMatch&&method==='POST') {
+        const data=await body(req);
+        if(returnMatch[2]==='choose') await returner.choose(returnMatch[1],data.original);
+        else if(returnMatch[2]==='restore') await returner.restore(returnMatch[1]);
+        else returner.retry(returnMatch[1]);
+        return json(res,200,{ok:true});
+      }
       if(p==='/api/status'&&method==='GET') {
         const counts=Object.fromEntries(store.all('SELECT state,COUNT(*) AS count FROM jobs WHERE hidden=0 GROUP BY state').map(r=>[r.state,r.count]));
         const saved=store.get("SELECT COALESCE(SUM(saved_bytes),0) AS bytes FROM jobs WHERE state='completed' AND hidden=0").bytes;
@@ -115,6 +137,7 @@ export async function createService(c,{background=true}={}) {
       if(watchMatch&&method==='DELETE') {
         const id=watchMatch[1];if(!store.watch(id))fail('Mappen findes ikke.',404);
         if(store.get("SELECT id FROM jobs WHERE watch_id=? AND state IN ('running','cancel_requested','queued')",id))fail('Annullér først mappens ventende og aktive jobs.',409);
+        if(returner.active||returner.scanning||store.get("SELECT r.id FROM returns r JOIN jobs j ON r.input=j.output WHERE j.watch_id=? AND r.state NOT IN ('done','deleted','restored')",id))fail('Afslut først tilbageflytninger for mappen; jobhistorikken bruges til matchning.',409);
         store.db.exec('BEGIN IMMEDIATE');
         try {store.run('DELETE FROM jobs WHERE watch_id=?',id);store.run('DELETE FROM watches WHERE id=?',id);store.db.exec('COMMIT');}catch(error){store.db.exec('ROLLBACK');throw error;}
         return json(res,200,{ok:true});
@@ -159,9 +182,9 @@ export async function createService(c,{background=true}={}) {
   });
   server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
   server.maxHeadersCount=50;
-  return {server,store,engine,close:async()=>{
+  return {server,store,engine,returner,close:async()=>{
     const closed=new Promise(resolve=>server.listening?server.close(resolve):resolve());
-    server.closeIdleConnections();await engine.stop();await closed;store.close();
+    server.closeIdleConnections();await returner.stop();await engine.stop();await closed;store.close();
   }};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {

@@ -1,4 +1,14 @@
-# Verifikation af v0.2.0
+# Verifikation af v0.3.0
+
+10. september 2026: **50 tests bestået, 0 fejlet, 0 sprunget over** med Node.js 24.19.0 og rigtig FFmpeg. `npm run check` er også bestået. Alle eksisterende encoding-/API-tests er genkørt.
+
+Nye tests dækker præcist jobmatch, rigtig encoding med SRT efterfulgt af tilbageflytning, automatisk overvågning, manuel navnesammenligning, tvetydige matches, remakes/editions/episoder, ændrede originaler og outputchecksums, utilstrækkelig plads, aktive jobs, OLD-/mål-/sidefilkonflikter, korrupte og forkert lange videoer, symlinks/stigrænser, kopiering uden hardlinkstøtte, afbrudt publicering/genstart, gendannelse, checksum-beskyttet manuel OLD-sletning, stop af automatisk kø og vedvarende beskyttelse mod gen-encoding.
+
+Compose/YAML er syntakskontrolleret; tilbageflytningsvarianten er kontrolleret for tre mediemounts, skrivbar adgang, eksisterende mapper, `proxy` og ingen hostporte. Docker findes ikke i det lokale testmiljø; GitHub Actions er gate for Compose-validering, containerbuild og healthcheck som UID 1000.
+
+Interaktiv browser-/visuel QA kunne ikke køres: Playwright-pakken findes, men browserbinæren mangler. HTML, JavaScript-syntaks, statiske assets, login/CSRF og API er kontrolleret. Ingen test på brugerens NAS, fysisk ARM-maskine eller lange spillefilm er udført. Filsystemfejl er simuleret i isolerede testmapper; NAS-hardlinks/fsync og afspilning skal verificeres med én repræsentativ fil på målserveren.
+
+## Verifikation af v0.2.0
 
 9. september 2026: **20 tests bestået, 0 fejlet**, inklusive 3 undertests for metadatafiltre. Dækker også v0.1-databasemigration, eksakte GB-grænser, samlet fjernelse med rollback, filbevaring, genkendelse efter genstart, opdatering af ventende jobs og opt-out. Den eksisterende encoding-testpakke er genkørt.
 

@@ -10,6 +10,7 @@
   <a class="skip-link" href="#main">Gå til indhold</a>
   <header class="topbar"><a class="brand" href="/" aria-label="ReelShrink forside"><span class="brand-mark" aria-hidden="true">R<span>↘</span></span>ReelShrink<span class="version" id="version">0.1</span></a><span class="connection" id="connection" role="status">Forbinder…</span></header>
   <main id="main">
+    <nav class="section-nav" aria-label="Funktioner"><a href="/" aria-current="page">Encoding</a><a href="/returns">Tilbageflytning & OLD-kø</a></nav>
     <div class="heading"><div><p class="eyebrow">FILM & SERIER</p><h1>Dit encoding-overblik</h1></div><div class="actions"><button id="pause" class="button secondary" disabled>Sæt kø på pause</button><button id="scan" class="button secondary">Scan nu</button><button class="button primary" data-action="add">+ Tilføj mappe</button></div></div>
     <div id="connection-error" class="alert" role="alert" hidden></div>
     <section class="stats" aria-label="Statistik"><article><span>Plads sparet i videofiler</span><strong id="saved">—</strong><small>Forskel mellem original og resultat</small></article><article><span>I kø</span><strong id="queued">—</strong><small>Venter på encoding</small></article><article><span>Færdige filer</span><strong id="completed">—</strong><small>Kontrolleret og gemt</small></article><article><span>Ledig outputplads</span><strong id="free">—</strong><small id="output-root">Outputmappe</small></article></section>
@@ -24,7 +25,7 @@
       </section>
     </div><aside>
       <section class="panel" aria-labelledby="watch-title"><div class="panel-heading"><h2 id="watch-title">Overvågede mapper</h2><button class="icon-button" data-action="add" aria-label="Tilføj mappe">+</button></div><div id="watch-list"><p class="loading">Henter mapper…</p></div></section>
-      <section class="panel note-panel"><span class="tag">ORIGINALER BEVARES</span><h2>Undertekster på dine vilkår</h2><p>SRT-filer lægges ind som valgbare spor i MKV-filen. Du vælger selv undertekster i din afspiller.</p><div class="rule"></div><p>Resultatet gemmes separat. Der slettes eller overskrives aldrig noget i kildemappen.</p></section>
+      <section class="panel note-panel"><span class="tag">ORIGINALER BEVARES</span><h2>Undertekster på dine vilkår</h2><p>SRT-filer lægges ind som valgbare spor i MKV-filen. Du vælger selv undertekster i din afspiller.</p><div class="rule"></div><p>Encoding gemmer resultatet separat. Under <a href="/returns">Tilbageflytning</a> kan du sætte det tilbage og gemme originalen som OLD til manuel sletning.</p></section>
       <div class="engine-info" id="engine-info">CPU-encoding · FFmpeg</div>
     </aside></div>
     <footer>ReelShrink <span>Lokalt på din server</span></footer>

@@ -23,6 +23,8 @@ jobs:
         run: |
           docker compose --env-file .env.example config --quiet
           docker compose --env-file .env.example -f compose.proxy.yaml config --quiet
+          docker compose --env-file return.env.example -f compose.return.yaml config --quiet
+          docker compose --env-file return.env.example -f compose.return.yaml -f compose.build.yaml config --quiet
           docker compose --env-file .env.example -f compose.yaml -f compose.build.yaml config --quiet
       - name: Build and smoke-test non-root container
         run: |

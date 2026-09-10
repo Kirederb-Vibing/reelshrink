@@ -3,6 +3,7 @@ import path from 'node:path';
 import { constants } from 'node:fs';
 import { inside, filterReason } from './config.mjs';
 import { discover, bundleFor, signatureFor, assertBundleAllowed, probe, hdrReason, encodeArgs, prepareSubtitles, validateOutput, run } from './media.mjs';
+import { fingerprint, digest, sourceHeld } from './returner.mjs';
 
 export class Engine {
   constructor(c, store) {
@@ -56,6 +57,9 @@ export class Engine {
           const videos=await discover(watch.path,this.scanController.signal);
           for(const source of videos) {
             if(this.stopping) break;
+            if(sourceHeld(this.store,source)) continue;
+            const returned=this.store.get('SELECT stamp FROM returned_files WHERE path=?',source);
+            if(returned && returned.stamp===await fingerprint(source)) continue;
             const key=watch.id+'|'+source; live.add(key);
             const bundle=await bundleFor(source), signature=await signatureFor(source,bundle);
             const stat=await fs.stat(source);
@@ -70,6 +74,7 @@ export class Engine {
             // The watch may have been edited or removed during asynchronous discovery.
             const current=this.store.watch(watch.id);
             if(!current?.enabled) break;
+            if(sourceHeld(this.store,source)) continue;
             const id=this.store.enqueue(current,source,path.relative(watch.path,source),signature,bundle,stat.size);
             const reason=filterReason(current.settings,stat.size);
             if(id && reason) this.store.updateJob(id,{state:'skipped',error:reason});
@@ -87,7 +92,7 @@ export class Engine {
   }
   tick() {
     if(this.stopping || this.active || this.store.paused()) return;
-    const row=this.store.get("SELECT j.id FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 ORDER BY j.created,j.id LIMIT 1");
+    const row=this.store.all("SELECT j.id,j.source FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 ORDER BY j.created,j.id").find(j=>!sourceHeld(this.store,j.source));
     if(!row) return;
     const controller=new AbortController();
     this.active={id:row.id,controller};
@@ -173,10 +178,11 @@ export class Engine {
       await fs.mkdir(path.dirname(finalDir),{recursive:true});
       if(!inside(await fs.realpath(path.dirname(finalDir)),this.c.outputRoot)) throw new Error('Outputstien peger uden for outputmappen.');
       const output=path.join(finalDir,path.basename(encoded));
-      const manifest={jobId:job.id,source:job.relative,settings:job.settings,inputBytes:job.input_bytes,outputBytes:size,completedAt:new Date().toISOString()};
+      const outputHash=await digest(encoded);
+      const manifest={jobId:job.id,source:job.relative,sourceSignature:job.signature,outputSha256:outputHash,settings:job.settings,inputBytes:job.input_bytes,outputBytes:size,completedAt:new Date().toISOString()};
       await fs.writeFile(path.join(payload,'reelshrink.json'),JSON.stringify(manifest,null,2),{flag:'wx'});
       // Record the destination before rename so recovery can recognize an already-published result.
-      this.store.updateJob(job.id,{output,output_bytes:size,saved_bytes:Math.max(0,job.input_bytes-size),log:result.log});
+      this.store.updateJob(job.id,{output,output_sha256:outputHash,output_bytes:size,saved_bytes:Math.max(0,job.input_bytes-size),log:result.log});
       try {await fs.access(finalDir);throw new Error('Outputmappen findes allerede; den overskrives ikke.');} catch(e) {if(e.code!=='ENOENT')throw e;}
       await fs.rename(payload,finalDir);
       this.store.updateJob(job.id,{state:'completed',progress:100,speed:null,eta:null,error:null});

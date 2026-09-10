@@ -30,7 +30,17 @@ export class Store {
     if (!this.all('PRAGMA table_info(jobs)').some(c => c.name === 'hidden')) {
       this.db.exec('ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
     }
-    this.db.exec('PRAGMA user_version=2');
+    if (!this.all('PRAGMA table_info(jobs)').some(c => c.name === 'output_sha256')) this.db.exec('ALTER TABLE jobs ADD COLUMN output_sha256 TEXT');
+    this.db.exec(`PRAGMA synchronous=FULL;
+      CREATE TABLE IF NOT EXISTS returns (
+        id TEXT PRIMARY KEY, input TEXT NOT NULL, input_stamp TEXT NOT NULL,
+        original TEXT NOT NULL, mode TEXT NOT NULL, state TEXT NOT NULL,
+        error TEXT, details TEXT NOT NULL, updated INTEGER NOT NULL,
+        UNIQUE(input,input_stamp)
+      );
+      CREATE INDEX IF NOT EXISTS return_original ON returns(original,state);
+      CREATE TABLE IF NOT EXISTS returned_files (path TEXT PRIMARY KEY, stamp TEXT NOT NULL, return_id TEXT NOT NULL);
+      PRAGMA user_version=3;`);
   }
   all(sql, ...p) { return this.db.prepare(sql).all(...p); }
   get(sql, ...p) { return this.db.prepare(sql).get(...p); }
@@ -45,7 +55,7 @@ export class Store {
     return this.watch(id);
   }
   updateJob(id, fields) {
-    const allowed = new Set(['state','progress','speed','eta','output_bytes','saved_bytes','output','error','log','info','settings']);
+    const allowed = new Set(['state','progress','speed','eta','output_bytes','saved_bytes','output','output_sha256','error','log','info','settings']);
     if (Object.keys(fields).some(k => !allowed.has(k))) throw new Error('Unknown job field');
     const entries = Object.entries({ ...fields, updated: Date.now() });
     this.run(`UPDATE jobs SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`, ...entries.map(([, v]) => v ?? null), id);
@@ -55,7 +65,8 @@ export class Store {
     return j ? this.parseJob(j) : null;
   }
   parseJob(j) {
-    return { ...j, bundle: JSON.parse(j.bundle), settings: settings(JSON.parse(j.settings)), info: j.info ? JSON.parse(j.info) : null };
+    const returned = this.get("SELECT details FROM returns WHERE input=? AND state IN ('done','deleted') ORDER BY updated DESC LIMIT 1",j.output||'');
+    return { ...j, returned_output: returned ? JSON.parse(returned.details).target : null, bundle: JSON.parse(j.bundle), settings: settings(JSON.parse(j.settings)), info: j.info ? JSON.parse(j.info) : null };
   }
   removeJobs(ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))) throw new Error('Vælg mellem 1 og 100 jobs.');

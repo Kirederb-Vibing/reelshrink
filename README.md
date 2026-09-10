@@ -2,9 +2,9 @@
 
 En lille, selvhostet tjeneste til at komprimere film og serier med en dansk web-GUI, automatisk mappeovervågning og **valgbare undertekster**.
 
-ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede MKV-filer i en separat outputmappe. Den sletter eller overskriver aldrig dine originaler. Video, lyd, scanning, database og GUI kører i én Docker-container.
+ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede MKV-filer i en separat outputmappe. Valgfri tilbageflytning sætter resultatet tilbage i biblioteket og gemmer originalen som `.OLD` til manuel sletning. Video, lyd, scanning, database og GUI kører i én Docker-container.
 
-**Version:** 0.2.1 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
+**Version:** 0.3.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
 
 > Første udgivelse. [GitHub-repository](https://github.com/Kirederb-Vibing/reelshrink) · [Buildstatus](https://github.com/Kirederb-Vibing/reelshrink/actions/workflows/publish.yml). Image: `ghcr.io/kirederb-vibing/reelshrink:latest`. Imaget er tilgængeligt, når publiceringsworkflowet er grønt; kontroller pakkens adgang ved første installation.
 
@@ -26,6 +26,14 @@ ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede M
 - Gem som standard kun resultatet, hvis videofilen er mindre end originalen.
 - Fuld dekodningskontrol af færdig video og lyd før publicering i outputmappen.
 - Image-opskrift og GHCR-workflow for `linux/amd64` og `linux/arm64`.
+
+## Tilbageflytning & OLD-kø (v0.3)
+
+ReelShrink kan nu overvåge sit output, føre færdige videoer tilbage til deres præcise originalmappe og gemme originalerne med `.OLD` til manuel gennemgang og sletning. Andre fra-/tilmapper kan sammenlignes efter filmtitel/år eller serie/sæson/episode. Tvetydige matches kræver dit valg.
+
+Åbn **Tilbageflytning & OLD-kø** i GUI’en. Automatisk tilbageflytning er slået fra ved opgradering. Funktionen kræver skrivbare mediemounts; brug den nye **[compose.return.yaml](compose.return.yaml)** og **[return.env.example](return.env.example)** til Dockge/Pangolin med tre mediemapper og ingen hostporte. Bevar eksisterende database og containerstier.
+
+Læs **[opsætning, matchregler, sikker filhåndtering og gendannelse](docs/RETURNING.md)** før aktivering.
 
 ## Hurtig installation med Docker Compose
 

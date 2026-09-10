@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 
-ARG VERSION=0.2.1
+ARG VERSION=0.3.0
 ARG REVISION=unknown
 ARG SOURCE_URL
 LABEL org.opencontainers.image.title="ReelShrink" \
@@ -13,7 +13,7 @@ LABEL org.opencontainers.image.title="ReelShrink" \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app /config /output /media \
+    && mkdir -p /app /config /output /media /incoming \
     && chown -R node:node /app /config /output
 WORKDIR /app
 COPY --chown=node:node package.json ./
