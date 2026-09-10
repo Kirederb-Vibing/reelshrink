@@ -21,6 +21,14 @@ Samme origin og port som GUI'en. JSON-svar. HTTP Basic gælder alle endpoints un
 | POST | `/api/jobs/remove` | Fjern 1–100 poster samlet; body `{"ids":["uuid", "uuid"]}` |
 | POST | `/api/jobs/{id}/cancel` | Annullér; body `{}` |
 | POST | `/api/jobs/{id}/retry` | Genstart med mappens nuværende profil; body `{}` |
+| GET | `/api/returns` | Indstillinger, scanning, aktiv flytning og match-/OLD-historik |
+| PUT | `/api/returns/settings` | `{"automatic":false,"from":"/incoming","to":"/media"}`; tomme fra/til bruger kun jobforbindelser |
+| POST | `/api/returns/scan` | Start scanning; `{}`; svar 202 |
+| POST | `/api/returns/move` | `{"ids":["uuid"]}`; 1–100 klare poster sættes i kø; svar 202 |
+| POST | `/api/returns/{id}/choose` | `{"original":"/media/…"}`; vælg en foreslået kandidat |
+| POST | `/api/returns/{id}/retry` | `{}`; genkontrollér en fejlet flytning uden filændringer |
+| POST | `/api/returns/{id}/restore` | `{}`; gendan original, bevar øvrige kopier |
+| POST | `/api/returns/delete-old` | `{"ids":["uuid"],"confirmation":"SLET OLD"}`; permanent sletning efter checksumkontrol |
 
 Jobliste-parametre: `state=all|active|completed|failed|skipped|cancelled`, `q=<tekst>`, `offset=0`, `limit=30` (1–500 eller `all`). Svaret er `{items,total,limit,offset}`. `active` omfatter kø, encoding og igangværende annullering. `settings` og `bundle` i et job er snapshots fra oprettelsen.
 

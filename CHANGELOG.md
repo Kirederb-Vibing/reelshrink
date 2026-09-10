@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-09-10
+
+- Tilbageflytning som integreret side: præcist jobmatch, outputovervågning og manuel fra-/tilsammenligning af film og serieafsnit.
+- Sikker kopiering med SHA-256, fuld dekodning, no-clobber-publicering og vedvarende journal.
+- Originaler gemmes som `.OLD`; GUI med enkelt-/batchflytning, manuel bekræftet sletning og gendannelse.
+- Returnerede videoer encodes ikke igen; ændrede originaler, tvetydige navne, målkonflikter og sidefilkonflikter blokeres.
+- Dockge/Pangolin Compose til tre skrivbare mediemapper, output og ekstra fra-mappe.
+
 ## 0.2.1 — 2026-09-09
 
 - Vælg 30, 50, 100, 200, 500 eller alle jobs i listen.

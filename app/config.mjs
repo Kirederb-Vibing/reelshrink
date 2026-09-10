@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 
-export const VERSION = '0.2.1';
+export const VERSION = '0.3.0';
 export function config(env = process.env) {
   const integer = (key, fallback, min, max) => {
     const value = Number(env[key] ?? fallback);
@@ -13,6 +13,7 @@ export function config(env = process.env) {
     host: env.HOST || '0.0.0.0',
     mediaRoots: (env.MEDIA_ROOTS || '/media').split(':').map(p => path.resolve(p)),
     outputRoot: path.resolve(env.OUTPUT_ROOT || '/output'),
+    returnInputRoots: (env.RETURN_INPUT_ROOTS || '/incoming').split(':').filter(Boolean).map(p => path.resolve(p)),
     configDir: path.resolve(env.CONFIG_DIR || '/config'),
     scanInterval: integer('SCAN_INTERVAL', 30, 5, 86400),
     stableSeconds: integer('STABLE_SECONDS', 60, 5, 86400),
@@ -29,6 +30,9 @@ export function config(env = process.env) {
     if (inside(c.configDir, root) || inside(root, c.configDir)) throw new Error('Konfiguration og input må ikke overlappe.');
   }
   if (inside(c.configDir, c.outputRoot) || inside(c.outputRoot, c.configDir)) throw new Error('Konfiguration og output må ikke overlappe.');
+  for (const root of c.returnInputRoots) {
+    if ([c.configDir, c.outputRoot, ...c.mediaRoots].some(other => inside(root, other) || inside(other, root))) throw new Error('Ekstra fra-mapper skal være adskilt fra medier, output og konfiguration.');
+  }
   return c;
 }
 export function inside(candidate, root) {

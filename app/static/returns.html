@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">
+  <title>ReelShrink · Tilbageflytning</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css"><script defer src="/returns.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Gå til indhold</a>
+  <header class="topbar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">R<span>↘</span></span>ReelShrink</a><span id="connection" class="connection" role="status">Forbinder…</span></header>
+  <main id="main">
+    <nav class="section-nav" aria-label="Funktioner"><a href="/">Encoding</a><a href="/returns" aria-current="page">Tilbageflytning & OLD-kø</a></nav>
+    <div class="heading"><div><p class="eyebrow">FRA OUTPUT TIL BIBLIOTEK</p><h1>De mindre filer hjem igen</h1><p class="hint">Match, kontrollér og erstat. Originalen gemmes som <strong>Film.mkv.OLD</strong>, indtil du selv sletter den.</p></div><button class="button secondary" id="scan">Scan nu</button></div>
+    <div id="error" class="alert" role="alert" hidden></div>
+    <section class="stats" aria-label="Overblik"><article><span>Klar til flytning</span><strong id="ready">0</strong><small>Match fundet</small></article><article><span>Kræver gennemgang</span><strong id="review">0</strong><small>Tvetydige match eller fejl</small></article><article><span>Originaler i OLD-kø</span><strong id="old-count">0</strong><small>Slettes kun efter dit valg</small></article><article><span>OLD-filers størrelse</span><strong id="old-size">0 B</strong><small>Kan frigives efter gennemgang</small></article></section>
+    <section class="panel return-settings">
+      <div class="panel-heading"><h2>Overvågning & mapper</h2><span class="tag">MANUEL SLETNING</span></div>
+      <form id="settings-form" class="return-form">
+        <label class="check"><input type="checkbox" id="automatic"><span>Flyt automatisk færdige Reelshrink-filer tilbage til deres originalmappe</span></label>
+        <p class="hint">Output overvåges løbende. Automatisk flytning bruger jobhistorikken og kontrollerer originalen. Andre filer flyttes først, når du vælger dem nedenfor.</p>
+        <div class="form-grid"><div><label for="from">Ekstra sammenligning: fra-mappe</label><input id="from" placeholder="Fx /incoming eller /output" list="input-roots"><datalist id="input-roots"></datalist></div><div><label for="to">Til-mappe med eksisterende film / serier</label><input id="to" placeholder="Fx /media" list="media-roots"><datalist id="media-roots"></datalist></div></div>
+        <p class="hint" id="roots-note"></p><p class="hint">Undermapper medtages. Lad begge felter være tomme for kun at bruge Reelshrinks jobforbindelser. Navnematch bruger titel + år eller serie + sæson og episode.</p>
+        <button class="button primary" type="submit" id="save-settings">Gem indstillinger</button><span class="hint" id="saved-settings" role="status"></span>
+      </form>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><h2>Filer & matches</h2><span class="muted" id="scan-time"></span></div>
+      <div class="filters"><select id="filter" aria-label="Vis status"><option value="pending">Afventer behandling</option><option value="ready">Klar til flytning</option><option value="review">Kræver gennemgang</option><option value="all">Alle inkl. historik</option></select><label class="search"><input type="search" id="search" placeholder="Find film eller episode" aria-label="Søg i filer og stier"></label></div>
+      <div class="page-size-control"><label for="page-size">Vis pr. side</label><select id="page-size"><option>30</option><option>50</option><option>100</option><option>200</option><option>500</option><option value="all">Alle</option></select></div>
+      <div class="bulk-actions"><label class="check"><input type="checkbox" id="select-page"><span>Vælg klare filer på siden</span></label><span id="selected-count" class="muted">0 valgt</span><button id="move-selected" class="button small primary" disabled>Flyt valgte</button></div>
+      <div id="matches" class="return-list"><p class="loading">Henter filer…</p></div>
+      <div class="pagination" id="pagination"><button id="previous" class="button small secondary">Forrige</button><span id="page-info"></span><button id="next" class="button small secondary">Næste</button></div>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><h2>OLD-kø · gennemgå før sletning</h2><p class="hint">Afspil den nye fil og kontrollér lyd og undertekster. Sletning kontrollerer både original og erstatning igen.</p></div></div>
+      <div class="bulk-actions"><label class="check"><input type="checkbox" id="select-old"><span>Vælg OLD-filer (maks. 100)</span></label><span id="old-selected-count" class="muted">0 valgt</span><button id="delete-selected" class="button small danger" disabled>Slet valgte OLD-filer</button></div>
+      <div id="old-list" class="return-list"></div>
+    </section>
+    <footer>ReelShrink <span>Lokalt på din server</span></footer>
+  </main>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><form id="confirm-form"><div class="dialog-heading"><h2 id="confirm-title"></h2><button class="icon-button" type="button" id="close-confirm" aria-label="Luk">×</button></div><p id="confirm-description"></p><pre class="path-block return-confirm-paths" id="confirm-paths"></pre><div id="delete-confirmation" hidden><label for="confirmation-text">Skriv SLET OLD for permanent sletning</label><input id="confirmation-text" autocomplete="off"></div><div class="dialog-footer"><button type="button" id="cancel-confirm" class="button secondary">Annullér</button><button type="submit" id="confirm-submit" class="button primary">Bekræft</button></div></form></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
