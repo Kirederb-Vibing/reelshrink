@@ -7,7 +7,7 @@ import { config, mediaPath, inside, processingPath, settings, FILTER_DEFAULTS, f
 import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
 import { Returner } from './returner.mjs';
-import { Archive } from './archive.mjs';
+import { Archive, prepareWork } from './archive.mjs';
 import { run } from './media.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
@@ -23,6 +23,7 @@ async function body(req) {
   return data;
 }
 export async function createService(c,{background=true}={}) {
+  await prepareWork(c);
   const encoders=await run(c.ffmpeg,['-hide_banner','-encoders'],{timeout:10000});
   if(!encoders.out.includes('libx265')||!encoders.out.includes('libx264')) throw new Error('FFmpeg skal indeholde libx265 og libx264.');
   await run(c.ffprobe,['-version'],{timeout:10000});

@@ -13,6 +13,18 @@ const exists = async p => { try { await fs.lstat(p); return true; } catch(e) { i
 const filesIn = (source,bundle) => [...new Set([source,...bundle.sidecars,...bundle.subtitles.map(s=>s.path)])];
 const conflict = message => { throw new Error(message); };
 
+// Run before server/engine canonicalize outputRoot or create staging directories.
+export async function prepareWork(c) {
+  if(!c.workRoot) return;
+  if(c.outputRoot!==path.join(c.workRoot,'encoded')) conflict('Encoding-output skal ligge i arbejdsarkivets encoded-mappe.');
+  for(const dir of [c.workRoot,...c.mediaRoots,...c.returnInputRoots,c.outputRoot]) {
+    await fs.mkdir(dir,{recursive:true});
+    if(await fs.realpath(dir)!==dir) conflict('Arbejdsarkivet må ikke indeholde symlinks.');
+    const type=Number((await fs.statfs(dir)).type)>>>0;
+    if([0x6969,0xff534d42,0xfe534d42].includes(type)) conflict('Arbejdsarkivet er på NFS/SMB. Vælg en lokal disk.');
+  }
+}
+
 // A declared drive type is descriptive. Identity checks also detect a vanished mount
 // being replaced by an empty host directory. No library is polled by this worker.
 export class Archive {
@@ -22,12 +34,7 @@ export class Archive {
   }
   async init() {
     if(!this.c.workRoot) return;
-    for(const dir of [this.c.workRoot,...this.c.mediaRoots,...this.c.returnInputRoots,this.c.outputRoot]) {
-      await fs.mkdir(dir,{recursive:true});
-      if(await fs.realpath(dir)!==dir) conflict('Arbejdsarkivet må ikke indeholde symlinks.');
-      const type=Number((await fs.statfs(dir)).type)>>>0;
-      if([0x6969,0xff534d42,0xfe534d42].includes(type)) conflict('Arbejdsarkivet er på NFS/SMB. Vælg en lokal disk.');
-    }
+    await prepareWork(this.c);
     for(const drive of this.c.archiveDrives) {
       if(await fs.realpath(drive.path)!==drive.path) conflict('Biblioteksdrevet må ikke være et symlink: '+drive.path);
     }

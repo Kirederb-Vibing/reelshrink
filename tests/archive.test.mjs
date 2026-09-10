@@ -40,6 +40,17 @@ test('work mode maps only processing to local subdirectories and validates drive
   for(const values of [{MEDIA_DRIVE_TYPES:'network'},{MEDIA_DRIVE_TYPES:'network:invalid'},{WORK_DRIVE_TYPE:'network'},{WORK_ROOT:'/nas'},{CONFIG_DIR:'/work/config'}])assert.throws(()=>config({...env,...values}));
 });
 
+test('work output symlink is rejected before the engine writes to its external target',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'reelshrink-work-boundary-'));
+  t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const work=path.join(root,'work'),nas=path.join(root,'nas');await fs.mkdir(work);await fs.mkdir(nas);
+  await fs.symlink(nas,path.join(work,'encoded'));
+  const c=config({WORK_ROOT:work,MEDIA_ROOTS:nas,CONFIG_DIR:path.join(root,'config')});
+  await assert.rejects(createService(c,{background:false}),/symlinks/);
+  assert.deepEqual(await fs.readdir(nas),[],'startup must not create engine staging on the library drive');
+  await assert.rejects(fs.stat(c.configDir),{code:'ENOENT'});
+});
+
 test('selected downloads preserve NAS originals, record paths and sidecars, and never upload automatically',async t=>{
   const e=await setup(t),source=await original(e,'Folder/Film.2026.mp4');
   await fs.writeFile(source.replace('.mp4','.da.srt'),'subtitle');await fs.writeFile(path.join(path.dirname(source),'unrelated.txt'),'keep');
