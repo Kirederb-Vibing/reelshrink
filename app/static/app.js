@@ -76,7 +76,7 @@ async function refresh(){
     $('connection-error').hidden=true;$('connection').textContent=status.scanning?'Scanner mapper…':status.paused?'Kø på pause':'Forbundet';$('connection').className='connection ok';
     $('version').textContent=system.version;$('pause').disabled=false;$('pause').textContent=status.paused?'Genoptag kø':'Sæt kø på pause';
     $('saved').textContent=bytes(status.savedBytes);$('queued').textContent=status.counts.queued||0;$('completed').textContent=status.counts.completed||0;$('free').textContent=bytes(status.outputFreeBytes);$('output-root').textContent=system.outputRoot;
-    $('engine-info').textContent=`CPU-encoding · ${system.threads} tråde · MKV\nScan hvert ${system.scanInterval}. sekund`;
+    $('engine-info').textContent=`${system.workRoot?'Kun lokalt arbejdsarkiv · ':''}CPU-encoding · ${system.threads} tråde · MKV\nScan hvert ${system.scanInterval}. sekund`;
     renderActive();renderWatches();renderJobs(values[2]);
     if(detailId&&$('job-dialog').open)renderDetail(await api('/jobs/'+detailId));
   }catch(e){$('connection').textContent='Ingen forbindelse';$('connection').className='connection offline';error('Kunne ikke opdatere overblikket: '+e.message);}

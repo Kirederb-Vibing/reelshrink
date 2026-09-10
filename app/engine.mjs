@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { constants } from 'node:fs';
-import { inside, filterReason } from './config.mjs';
+import { inside, filterReason, processingPath } from './config.mjs';
 import { discover, bundleFor, signatureFor, assertBundleAllowed, probe, hdrReason, encodeArgs, prepareSubtitles, validateOutput, run } from './media.mjs';
 import { fingerprint, digest, sourceHeld } from './returner.mjs';
 
@@ -52,6 +52,7 @@ export class Engine {
       for(const watch of this.store.watches().filter(w=>w.enabled)) {
         let waiting=0;
         try {
+          processingPath(watch.path,this.c);
           const real=await fs.realpath(watch.path);
           if(real!==watch.path || inside(real,this.c.outputRoot) || inside(this.c.outputRoot,real)) throw new Error('Overvågningsmappen er flyttet eller overlapper output.');
           const videos=await discover(watch.path,this.scanController.signal);
@@ -114,6 +115,7 @@ export class Engine {
   async retry(id) {
     const job=this.store.job(id);
     if(!job || !['failed','skipped','cancelled'].includes(job.state)) throw new Error('Dette job kan ikke genstartes.');
+    processingPath(job.source,this.c);
     const watch=this.store.watch(job.watch_id);
     if(!watch?.enabled) throw new Error('Aktivér først overvågningsmappen.');
     if(await signatureFor(job.source,await bundleFor(job.source))!==job.signature) throw new Error('Kilden er ændret. Scan mappen for at oprette et nyt job.');
@@ -124,6 +126,7 @@ export class Engine {
     const stage=path.join(this.stageRoot,job.id);
     try {
       const watch=this.store.watch(job.watch_id);
+      processingPath(job.source,this.c);
       await assertBundleAllowed(job.source,job.bundle,[watch.path]);
       if(await signatureFor(job.source,await bundleFor(job.source))!==job.signature) throw new Error('Kilden eller dens tilhørende filer er ændret. Scan igen.');
       const sizeReason=filterReason(job.settings,job.input_bytes);

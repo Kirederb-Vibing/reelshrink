@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="da"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>ReelShrink · Arbejdsarkiv</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><script defer src="/archive.js"></script></head>
+<body><a class="skip-link" href="#main">Gå til indhold</a>
+<header class="topbar"><a class="brand" href="/">ReelShrink</a><span id="connection" class="connection" role="status">Forbinder…</span></header>
+<main id="main"><nav class="section-nav" aria-label="Funktioner"><a href="/archive" aria-current="page">Arbejdsarkiv</a><a href="/">Encoding</a><a href="/returns">Tilbageflytning & OLD-kø</a></nav>
+<div class="heading"><div><p class="eyebrow">BIBLIOTEK ↔ LOKAL ARBEJDSDISK</p><h1>Hent én gang. Arbejd lokalt.</h1><p class="hint">Hent valgte film og afsnit. Encode og gennemgå resultatet lokalt. Send kun de emner tilbage, du selv vælger.</p></div></div>
+<div id="error" class="alert" role="alert" hidden></div><p id="mode-note" class="hint"></p>
+<section class="panel"><div class="panel-heading"><h2>Hent fra server til arbejdsarkiv</h2><button id="refresh-library" class="button secondary">Opdater mappe</button></div>
+<p class="hint">Åbn et drev og en mappe. Vælg videoer; tilhørende undertekster og metadata hentes med. Originalerne bliver på serveren.</p>
+<div class="filters"><button id="up" class="button small secondary">Drev / op</button><strong id="browse-path" class="archive-path"></strong><input id="library-search" type="search" placeholder="Søg i denne mappe" aria-label="Søg i bibliotek"></div>
+<div class="bulk-actions"><label class="check"><input id="select-library" type="checkbox"><span>Vælg viste videoer (maks. 100)</span></label><button id="download" class="button primary" disabled>Hent valgte</button><span id="download-count" class="muted"></span></div>
+<div id="library-list" class="return-list"></div></section>
+<section class="panel"><div class="panel-heading"><h2>Arbejdsarkiv & overførsler</h2><span id="work-root" class="muted"></span></div>
+<p class="hint">Efter encoding: flyt resultatet tilbage i fanen Tilbageflytning, kontrollér videoen og slet dens lokale OLD-fil i OLD-køen. Derefter kan emnet vælges her til afsendelse. Den lokale kopi bevares efter afsendelse.</p>
+<div class="filters"><input id="work-search" type="search" placeholder="Find film, afsnit eller originalsti" aria-label="Søg i arbejdsarkiv"><select id="work-filter" aria-label="Filtrer arbejdsarkiv"><option value="pending">Aktuelle emner</option><option value="ready">Klar til afsendelse</option><option value="all">Alle inkl. afsendte</option></select></div>
+<div class="bulk-actions"><label class="check"><input id="select-work" type="checkbox"><span>Vælg viste, godkendte emner (maks. 100)</span></label><button id="upload" class="button primary" disabled>Send valgte til server</button><span id="upload-count" class="muted"></span></div>
+<div id="work-list" class="return-list"></div></section>
+<footer>ReelShrink <span>Encoding og tilbageflytning i arbejdsarkivet</span></footer></main>
+<dialog id="send-dialog" aria-labelledby="send-title"><form id="send-form"><div class="dialog-heading"><h2 id="send-title">Send og erstat valgte emner</h2></div><p>Nye filer kopieres og kontrolleres, før registrerede originaler erstattes og slettes. Andre filer i mappen bevares. Kontrollér destinationerne:</p><pre id="send-paths" class="path-block return-confirm-paths"></pre><label for="send-confirmation">Skriv SEND OG ERSTAT</label><input id="send-confirmation" autocomplete="off" required><div class="dialog-footer"><button type="button" id="cancel-send" class="button secondary">Annullér</button><button type="submit" class="button primary">Send valgte til server</button></div></form></dialog>
+</body></html>

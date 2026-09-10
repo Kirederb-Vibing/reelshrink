@@ -40,7 +40,11 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS return_original ON returns(original,state);
       CREATE TABLE IF NOT EXISTS returned_files (path TEXT PRIMARY KEY, stamp TEXT NOT NULL, return_id TEXT NOT NULL);
-      PRAGMA user_version=3;`);
+      CREATE TABLE IF NOT EXISTS archive_items (
+        id TEXT PRIMARY KEY, source TEXT NOT NULL UNIQUE, local_source TEXT NOT NULL,
+        state TEXT NOT NULL, data TEXT NOT NULL, updated INTEGER NOT NULL
+      );
+      PRAGMA user_version=4;`);
   }
   all(sql, ...p) { return this.db.prepare(sql).all(...p); }
   get(sql, ...p) { return this.db.prepare(sql).get(...p); }

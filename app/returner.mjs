@@ -41,7 +41,7 @@ export function identity(file) {
 }
 
 export function sourceHeld(store, file) {
-  return Boolean(store.get("SELECT id FROM returns WHERE original=? AND state IN ('queued','working','attention')", file));
+  return Boolean(store.archiveHeld?.(file) || store.get("SELECT id FROM returns WHERE original=? AND state IN ('queued','working','attention')", file));
 }
 
 export class Returner {
@@ -114,7 +114,7 @@ export class Returner {
     return this.store.all('SELECT id FROM returns ORDER BY updated DESC, id').map(r => this.row(r.id));
   }
   status() {
-    return { options: this.options(), scanning: this.scanning, active: this.active, scanError: this.scanError, lastScan: this.lastScan, inputRoots: this.inputRoots(), mediaRoots: this.c.mediaRoots, stableSeconds: this.c.stableSeconds, items: this.list() };
+    return { workRoot: this.c.workRoot, options: this.options(), scanning: this.scanning, active: this.active, scanError: this.scanError, lastScan: this.lastScan, inputRoots: this.inputRoots(), mediaRoots: this.c.mediaRoots, stableSeconds: this.c.stableSeconds, items: this.list() };
   }
   update(id, fields) {
     const keys = Object.keys(fields);
@@ -234,6 +234,7 @@ export class Returner {
   async transfer(id) {
     const r = this.row(id);
     if (!r || !['ready','queued'].includes(r.state)) throw new Error('Filen er ikke klar.');
+    if (this.store.archiveHeld?.(r.original)) throw new Error('Emnet er valgt til serveroverførsel eller allerede afsendt.');
     if (this.engine.active && this.store.job(this.engine.active.id)?.source === r.original) {
       this.update(id, { state: 'failed', error: 'Originalen encodes lige nu. Prøv igen når jobbet er færdigt.' }); return;
     }
@@ -331,6 +332,7 @@ export class Returner {
   async restoreFiles(id) {
     const r = this.row(id);
     if (!r || !['attention','done'].includes(r.state)) throw new Error('Denne original kan ikke gendannes.');
+    if (this.store.archiveHeld?.(r.original)) throw new Error('Emnet er valgt til serveroverførsel eller allerede afsendt.');
     const j = r.details;
     await this.allowed(path.dirname(r.original), this.c.mediaRoots, true);
     if (!j.backup) { this.update(id, { state: 'failed', error: 'Ingen filændring var startet. Ret fejlen og vælg Prøv igen.' }); return; }

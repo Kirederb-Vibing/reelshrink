@@ -1,0 +1,37 @@
+const $=id=>document.getElementById(id);
+const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const size=n=>{if(!n)return '0 B';const i=Math.min(4,Math.floor(Math.log(n)/Math.log(1024)));return (n/1024**i).toFixed(i?1:0)+' '+['B','KiB','MiB','GiB','TiB'][i];};
+let listing={entries:[]},status={items:[]},downloads=new Set(),uploads=new Set(),sending=[];
+async function api(url,method='GET',data) {const res=await fetch(url,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},...(data?{body:JSON.stringify(data)}:{})});const value=await res.json();if(!res.ok)throw new Error(value.error);return value;}
+function error(e){$('error').textContent=e.message;$('error').hidden=false;}
+async function action(fn){try{$('error').hidden=true;await fn();}catch(e){error(e);}}
+function counts(){$('download').disabled=!downloads.size||!status.enabled;$('upload').disabled=!uploads.size;$('download-count').textContent=downloads.size+' valgt';$('upload-count').textContent=uploads.size+' valgt';}
+function libraryEntries(){const q=$('library-search').value.toLowerCase();return listing.entries.filter(e=>e.name.toLowerCase().includes(q));}
+function renderLibrary(){
+ $('browse-path').textContent=listing.path||'Biblioteksdrev';
+ $('library-list').innerHTML=libraryEntries().map((e,i)=>`<article class="archive-row">${e.directory?`<button class="button secondary" data-folder="${i}">${escape(e.name)}</button><span class="tag">${e.type==='network'?'Netværksdrev':'Lokalt drev'}</span>`:`<label class="check"><input type="checkbox" data-file="${i}" ${downloads.has(e.path)?'checked':''} ${e.imported?'disabled':''}><span>${escape(e.name)}</span></label><span class="muted">${size(e.size)}${e.imported?' · Allerede hentet / i kø':''}</span>`}</article>`).join('')||'<p class="loading">Ingen videoer eller undermapper.</p>';counts();
+}
+async function browse(p){listing=await api('/api/archive/browse'+(p?'?path='+encodeURIComponent(p):''));downloads.clear();$('select-library').checked=false;renderLibrary();}
+function workItems(){const q=$('work-search').value.toLowerCase(),filter=$('work-filter').value;return status.items.filter(r=>(filter==='all'||(filter==='ready'?r.canSend:!['sent','cleaned'].includes(r.state)))&&(r.source+' '+r.local_source).toLowerCase().includes(q));}
+function renderWork(){
+ const opened=new Set([...document.querySelectorAll('[data-details][open]')].map(e=>e.dataset.details));
+ const eligible=new Set(status.items.filter(r=>r.canSend).map(r=>r.id));for(const id of uploads)if(!eligible.has(id))uploads.delete(id);
+ $('work-list').innerHTML=workItems().map(r=>{
+   const d=r.data,percent=d.total?Math.min(100,100*d.bytes/d.total):0,busy=['queued_download','downloading','queued_upload','uploading'].includes(r.state);
+   return `<article class="archive-item"><div class="archive-row"><label class="check"><input type="checkbox" data-work="${escape(r.id)}" ${uploads.has(r.id)?'checked':''} ${r.canSend?'':'disabled'}><strong>${escape(r.source.split('/').pop())}</strong></label><span class="tag">${r.canSend?'Klar til afsendelse':r.state==='local'?'Lokalt arbejdsarkiv':r.state==='sent'?'Afsendt':r.state==='cleaned'?'Lokal kopi ryddet':escape(d.phase)}</span></div><p class="archive-path">Fra / tilbage til: ${escape(r.source)}</p><p class="archive-path muted">Lokalt: ${escape(r.local_source)}</p>${busy?`<label class="archive-progress">${escape(d.phase)}<progress max="100" value="${percent.toFixed(1)}" aria-label="${escape(d.phase)}"></progress><span>${percent.toFixed(1)} % · ${size(d.bytes)} / ${size(d.total)}${d.speed?' · '+size(d.speed)+'/s':''}</span></label>`:''}${d.error?`<p class="alert">${escape(d.error)}</p>`:''}${['failed_download','attention'].includes(r.state)?`<button class="button small secondary" data-retry="${escape(r.id)}">Prøv igen / genoptag</button>`:''}${r.state==='sent'?`<button class="button small secondary" data-cleanup="${escape(r.id)}">Frigør lokal plads</button>`:''}<details data-details="${escape(r.id)}" ${opened.has(r.id)?'open':''}><summary>Registrerede filer og originalmappe</summary><p class="archive-path">${escape(d.originalDir)} · ${d.drive.type==='network'?'Netværksdrev':'Lokalt drev'}</p><ul>${d.manifest.map(f=>`<li>${escape(f.relative)} · ${size(f.size)}</li>`).join('')}</ul><p class="hint">Uændrede sidefiler bevares på serveren. Andre film, afsnit og nye filer i mappen slettes ikke.</p></details></article>`;
+ }).join('')||'<p class="loading">Ingen emner i denne visning.</p>';counts();
+}
+async function poll(){try{status=await api('/api/archive');$('connection').textContent='Forbundet';$('mode-note').textContent=status.enabled?'Biblioteksdrevene bruges kun til de overførsler, du vælger her.':'Arbejdsarkiv er ikke aktiveret. Se docs/work-archive.md på GitHub og angiv WORK_ROOT i Compose.';$('work-root').textContent=status.workRoot||'';renderWork();}catch(e){$('connection').textContent='Forbindelse afbrudt';error(e);}}
+$('library-list').addEventListener('click',e=>{const button=e.target.closest('[data-folder]');if(button)action(()=>browse(libraryEntries()[Number(button.dataset.folder)].path));});
+$('library-list').addEventListener('change',e=>{if(e.target.dataset.file===undefined)return;const p=libraryEntries()[Number(e.target.dataset.file)].path;if(e.target.checked&&downloads.size<100)downloads.add(p);else{downloads.delete(p);e.target.checked=false;}counts();});
+$('work-list').addEventListener('change',e=>{const id=e.target.dataset.work;if(!id)return;if(e.target.checked&&uploads.size<100)uploads.add(id);else{uploads.delete(id);e.target.checked=false;}counts();});
+$('work-list').addEventListener('click',e=>{const cleanup=e.target.closest('[data-cleanup]')?.dataset.cleanup;if(cleanup&&window.confirm('Slet den lokale emnemappe og tilhørende encoding-output? Serverkopien kontrolleres først.'))action(async()=>{await api('/api/archive/cleanup','POST',{ids:[cleanup],confirmation:'SLET LOKAL'});await poll();});const id=e.target.closest('[data-retry]')?.dataset.retry;if(id)action(async()=>{await api('/api/archive/'+id+'/retry','POST',{});await poll();});});
+$('refresh-library').onclick=()=>action(()=>browse(listing.path));$('up').onclick=()=>action(()=>browse(listing.parent));
+$('library-search').oninput=renderLibrary;$('work-search').oninput=renderWork;$('work-filter').onchange=renderWork;
+$('select-library').onchange=e=>{downloads=new Set(e.target.checked?libraryEntries().filter(e=>!e.directory&&!e.imported).slice(0,100).map(e=>e.path):[]);renderLibrary();};
+$('select-work').onchange=e=>{uploads=new Set(e.target.checked?workItems().filter(r=>r.canSend).slice(0,100).map(r=>r.id):[]);renderWork();};
+$('download').onclick=()=>action(async()=>{await api('/api/archive/download','POST',{paths:[...downloads]});await browse(listing.path);await poll();});
+$('upload').onclick=()=>{sending=[...uploads];$('send-paths').textContent=status.items.filter(r=>sending.includes(r.id)).map(r=>r.source).join('\n');$('send-confirmation').value='';$('send-dialog').showModal();};
+$('cancel-send').onclick=()=>$('send-dialog').close();
+$('send-form').onsubmit=e=>{e.preventDefault();action(async()=>{await api('/api/archive/upload','POST',{ids:sending,confirmation:$('send-confirmation').value});$('send-dialog').close();uploads.clear();await poll();});};
+async function start(){await poll();if(status.enabled)await action(()=>browse(null));setInterval(poll,2000);}start();

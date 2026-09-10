@@ -3,10 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
-import { config, mediaPath, inside, settings, FILTER_DEFAULTS, filterReason, VERSION } from './config.mjs';
+import { config, mediaPath, inside, processingPath, settings, FILTER_DEFAULTS, filterReason, VERSION } from './config.mjs';
 import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
 import { Returner } from './returner.mjs';
+import { Archive } from './archive.mjs';
 import { run } from './media.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
@@ -41,8 +42,10 @@ export async function createService(c,{background=true}={}) {
   const store=new Store(c.configDir),engine=new Engine(c,store);
   await engine.init();
   const returner=new Returner(c,store,engine);
+  const archive=new Archive(c,store,engine,returner);
+  await archive.init();
   await returner.init();
-  if(background) {engine.start();returner.start();}
+  if(background) {engine.start();returner.start();archive.start();}
   const json=(res,status,value)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   const server=http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
@@ -65,12 +68,19 @@ export async function createService(c,{background=true}={}) {
           if(origin.host!==req.headers.host)fail('Forespørgsler fra andre websites er ikke tilladt.',403);
         }
       }
-      const assets={'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      const assets={'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(assets[p]&&['GET','HEAD'].includes(method)) {
         const [file,type]=assets[p];const content=await fs.readFile(path.join(staticDir,file));
         res.writeHead(200,{'content-type':type+'; charset=utf-8'});return res.end(method==='HEAD'?undefined:content);
       }
-      if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
+      if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,workRoot:c.workRoot,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
+      if(p==='/api/archive'&&method==='GET') return json(res,200,archive.status());
+      if(p==='/api/archive/browse'&&method==='GET') return json(res,200,await archive.browse(url.searchParams.get('path')));
+      if(p==='/api/archive/download'&&method==='POST') return json(res,202,{ids:await archive.enqueueDownload((await body(req)).paths)});
+      if(p==='/api/archive/upload'&&method==='POST') {const data=await body(req);archive.enqueueUpload(data.ids,data.confirmation);return json(res,202,{ok:true});}
+      if(p==='/api/archive/cleanup'&&method==='POST') {const data=await body(req);await archive.cleanup(data.ids,data.confirmation);return json(res,200,{ok:true});}
+      const archiveMatch=p.match(/^\/api\/archive\/([a-f0-9-]+)\/retry$/);
+      if(archiveMatch&&method==='POST') {await body(req);archive.retry(archiveMatch[1]);return json(res,202,{ok:true});}
       if(p==='/api/returns'&&method==='GET') return json(res,200,returner.status());
       if(p==='/api/returns/settings'&&method==='PUT') return json(res,200,await returner.setOptions(await body(req)));
       if(p==='/api/returns/scan'&&method==='POST') {await body(req);returner.scan();return json(res,202,{ok:true});}
@@ -115,7 +125,7 @@ export async function createService(c,{background=true}={}) {
         const id=watchMatch[1],watch=store.watch(id);if(!watch)fail('Mappen findes ikke.',404);
         const data=await body(req),name=String(data.name??watch.name).trim();
         if(!name||name.length>60)fail('Navnet skal være mellem 1 og 60 tegn.');
-        const enabled=data.enabled??watch.enabled;if(typeof enabled!=='boolean')fail('Ugyldig aktivering.');
+        const enabled=data.enabled??watch.enabled;if(enabled)processingPath(watch.path,c);if(typeof enabled!=='boolean')fail('Ugyldig aktivering.');
         if(data.settings!==undefined&&(!data.settings||typeof data.settings!=='object'||Array.isArray(data.settings)))fail('Ugyldige indstillinger.');
         const options=settings({...watch.settings,...data.settings});
         const apply=data.applyFiltersToQueued??true;
@@ -182,9 +192,9 @@ export async function createService(c,{background=true}={}) {
   });
   server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
   server.maxHeadersCount=50;
-  return {server,store,engine,returner,close:async()=>{
+  return {server,store,engine,returner,archive,close:async()=>{
     const closed=new Promise(resolve=>server.listening?server.close(resolve):resolve());
-    server.closeIdleConnections();await returner.stop();await engine.stop();await closed;store.close();
+    server.closeIdleConnections();await archive.stop();await returner.stop();await engine.stop();await closed;store.close();
   }};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
