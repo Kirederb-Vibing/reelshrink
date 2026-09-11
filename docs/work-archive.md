@@ -1,4 +1,4 @@
-# Lokalt arbejdsarkiv (fra v0.4.0)
+# Lokalt arbejdsarkiv (fra v0.4.0, scan og usikker tilbageførsel i v0.5.0)
 
 Arbejdsarkivet henter valgte videoer fra NAS eller et lokalt bibliotek til serverens lokale disk. Encoding, kontrol, sammenligning og tilbageflytning sker derefter lokalt. Du godkender resultatet i OLD-køen og vælger separat, hvilke emner der skal sendes tilbage. Originalen på biblioteket bliver liggende under det lokale arbejde.
 
@@ -56,7 +56,7 @@ Et image-pull uden `WORK_ROOT` ændrer ikke den hidtidige arbejdsgang. Slå ikke
 
 ## Daglig arbejdsgang
 
-1. **Arbejdsarkiv → Hent fra server til arbejdsarkiv:** Åbn drev og undermapper. Vælg videoer eller alle viste videoer, op til 100 pr. handling. Tryk **Hent valgte**. Statusbaren viser overførte bytes, procent og hastighed. Filoversigten omfatter den valgte video og tilhørende SRT, NFO og billeder efter ReelShrinks eksisterende bundleregler. Mapper og ukendte filer kan gennemgås på serveren; de slettes ikke som en del af videooverførslen.
+1. **Arbejdsarkiv → Hent fra server til Work Library:** Vælg **Scan biblioteker**. ReelShrink gennemgår alle undermapper på de konfigurerede drev og gemmer resultaterne. Størrelse, varighed, kildehøjde og codec kan filtreres som på Encoding-siden. Søg eller filtrér listen, vælg op til 100 mulige videoer, og tryk **Hent til Work Library**. Statusbaren viser overførte bytes, procent og hastighed. Den valgte video og tilhørende SRT, NFO og billeder hentes efter ReelShrinks bundleregler.
 2. **Encoding:** Filen bliver synlig for den lokale overvågning, når hele hentningen er kontrolleret. Den normale stabilitetsperiode gælder fortsat. Justér encoding-profilen på overvågningen **Arbejdsarkiv**. Der læses ikke videodata fra NAS'en under encoding eller validering.
 3. **Tilbageflytning & OLD-kø:** Flyt den færdige lokale encoding tilbage over den lokale original. Den lokale original bliver `.OLD`. Automatisk tilbageflytning kan bruges her; den arbejder fortsat kun lokalt og sender aldrig til biblioteket.
 4. Afspil/kontrollér resultatet lokalt. Godkend ved at vælge **Slet valgte OLD-filer** i OLD-køen. Originalen på NAS'en er stadig bevaret. ReelShrink kræver denne registrerede godkendelse; sletning af `.OLD` uden om appen gør ikke automatisk emnet sendeklart.
@@ -64,6 +64,12 @@ Et image-pull uden `WORK_ROOT` ændrer ikke den hidtidige arbejdsgang. Slå ikke
 6. Den lokale erstatning bevares efter afsendelse. Under **Alle inkl. afsendte** kan **Frigør lokal plads** kontrollere serverkopien igen og slette det valgte emnes lokale mappe og tilhørende encoding-output. Historik og registrerede originalstier bevares.
 
 Der kører højst én biblioteksoverførsel ad gangen. Encoding kan arbejde på et tidligere hentet emne, mens et andet hentes. Afsendelse kræver, at igangværende lokal encoding/tilbageflytning er afsluttet; en ny lokal operation kan give en tydelig ventefejl, som genprøves manuelt. Afsendte emner og emner med en uafsluttet sendetransaktion genencodes ikke automatisk.
+
+### Usikker tilbageførsel pr. fil
+
+Brug kun valget, når ReelShrinks normale medietest blokerer en fil, som du selv har kontrolleret. På **Tilbageflytning & OLD-kø** kan en ReelShrink-fil markeres usikker: den kopieres med checksum, men varighed, fuld dekodning og OLD-kø springes over. På **Arbejdsarkiv** kan hvert færdigt emne tilsvarende markeres **Usikker tilbageførsel** og bekræftes med `SEND USIKKERT`; den færdige encoding sendes direkte tilbage til den registrerede serversti.
+
+Usikker tilstand er kun mulig med en præcis færdig ReelShrink-jobforbindelse. Den sletter den registrerede originalvideo og en eventuel fil på det beregnede mål med samme filmnavn og ny filendelse. Den sletter aldrig hele originalmappen, sidefiler, andre afsnit eller ukendte filer. Kopien checksumkontrolleres, men ReelShrink kan ikke fastslå, om indholdet er den rigtige film/episode, om hele videoen kan dekodes, eller om en eksisterende målfil burde bevares.
 
 ## Filhåndtering, plads og netværkstrafik
 
@@ -73,7 +79,7 @@ Originalen hentes én gang pr. gennemført hentning. Kopiens hash beregnes under
 
 Der er **én ekstra netværkslæsning af de nye overførte data** til checksumkontrol på destinationen. Genoptagelse og senere lokal oprydning kan også genlæse serverkopien. Det er ikke en garanti om præcis én læsning i hele forløbet; det fjerner de gentagne NAS-læsninger under encoding og lokal tilbageflytning. Hentefejl starter den pågældende hentning fra begyndelsen; afbrudt afsendelse før installation kopierer sendefilerne igen.
 
-Før originaler berøres, kopieres alle ændringer til `.reelshrink-archive-<id>` i originalmappen, synkroniseres og hashkontrolleres. Derefter flyttes kun de registrerede originalfiler, der skal erstattes, til transaktionsmappen på samme disk; de nye filer publiceres med eksklusive hardlinks. Originalkopier slettes først, når alle erstatninger er installeret og kontrolleret. Transaktionen bevares ved fejl. Filsystemet skal understøtte hardlinks og fil-/mappesynkronisering; manglende hardlink-understøttelse testes før originalerne flyttes og stopper afsendelsen uden at fjerne originalen.
+Ved normal tilbageførsel kopieres alle ændringer til `.reelshrink-archive-<id>` i originalmappen, synkroniseres og hashkontrolleres. Derefter flyttes kun de registrerede originalfiler, der skal erstattes, til transaktionsmappen på samme disk; de nye filer publiceres med eksklusive hardlinks. Originalkopier slettes først, når alle erstatninger er installeret og kontrolleret. Transaktionen bevares ved fejl. Filsystemet skal understøtte hardlinks og fil-/mappesynkronisering; manglende hardlink-understøttelse testes før originalerne flyttes og stopper afsendelsen uden at fjerne originalen.
 
 **Der slettes aldrig rekursivt en biblioteksmappe.** Andre afsnit, ukendte filer og filer tilføjet efter hentningen bevares. Uændrede sidefiler bevares også. Det er nødvendigt, fordi flere emner kan dele en mappe og metadata. En ny fil på den tiltænkte destinationssti blokerer, så den ikke overskrives. Overførslen er journalført pr. fil; biblioteket kan kortvarigt vise en delvis mappe under installation, og ved en afbrudt installation kan en original ligge i den skjulte transaktionsmappe indtil genoptagelse. Stop andre programmer fra at omorganisere/ændre de samme filer under afsendelse.
 

@@ -84,7 +84,17 @@ test('filename comparison requires manual move even with automatic mode enabled'
   assert.equal(e.returner.active,null); assert.ok(await fs.stat(p.original));
   const row = e.returner.list().find(r=>r.input===p.input);
   assert.equal(row.state,'ready'); assert.equal(row.mode,'filename');
+  assert.throws(()=>e.returner.enqueue([row.id],[row.id]),/usikker ReelShrink/);
   assert.equal((await move(e,row)).state,'done');
+});
+
+test('per-file unsafe return bypasses media validation and removes the original without OLD',async t => {
+  const e=await setup(t),p=await pair(e),replacement=Buffer.from('explicit unsafe replacement');
+  await fs.writeFile(p.input,replacement);
+  e.returner.enqueue([p.row.id],[p.row.id]);await e.returner.workerPromise;
+  const row=e.returner.row(p.row.id),target=p.original.replace('.mp4','.mkv');
+  assert.equal(row.state,'deleted',row.error);assert.equal(row.details.unsafe,true);
+  assert.deepEqual(await fs.readFile(target),replacement);await assert.rejects(fs.stat(p.original),{code:'ENOENT'});await assert.rejects(fs.stat(p.original+'.OLD'),{code:'ENOENT'});await assert.rejects(fs.stat(p.input),{code:'ENOENT'});
 });
 
 test('automatic watcher processes completed output once and retains OLD',async t => {

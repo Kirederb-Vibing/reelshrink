@@ -61,6 +61,10 @@ Batchen kontrolleres først samlet og derefter fil for fil. Hvis NAS/filoperatio
 
 **Gendan original** sætter originalen tilbage. Den nye video gemmes om nødvendigt med endelsen `.RETURNED-<id>`, så den ikke scannes som video. OLD, midlertidige kopier og tilføjede sidefiler bevares til manuel gennemgang. Kun normale afsluttede flytninger har OLD-filer, som kan slettes gennem køen; rester fra gendannelse ryddes manuelt efter kontrol.
 
+## Usikker flytning
+
+Et færdigt ReelShrink-job kan markeres **Usikker flytning** pr. fil. Valget er også tilgængeligt for et blokeret eller fejlet præcist jobmatch. ReelShrink kopierer og checksumkontrollerer filen, men springer varighedssammenligning, fuld dekodning, ændringskontrol og OLD-kø over. Den registrerede originalvideo slettes, og inputvideoen fjernes efter installation. Sidefiler ændres ikke. Funktionen accepterer ikke navnematch uden ReelShrink-jobhistorik.
+
 ## Afbrydelse, NAS og begrænsninger
 
 - En SQLite-journal skrives før filændringer. En afbrudt flytning markeres **Kræver gendannelse** efter genstart og genstartes ikke automatisk. Journalen viser original, mål, OLD og midlertidig fil. Brug **Gendan original** efter gennemgang.

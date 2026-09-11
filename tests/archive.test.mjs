@@ -40,6 +40,29 @@ test('work mode maps only processing to local subdirectories and validates drive
   for(const values of [{MEDIA_DRIVE_TYPES:'network'},{MEDIA_DRIVE_TYPES:'network:invalid'},{WORK_DRIVE_TYPE:'network'},{WORK_ROOT:'/nas'},{CONFIG_DIR:'/work/config'}])assert.throws(()=>config({...env,...values}));
 });
 
+test('work output symlink is rejected before the engine writes to its external target',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'reelshrink-work-boundary-'));
+  t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const work=path.join(root,'work'),nas=path.join(root,'nas');await fs.mkdir(work);await fs.mkdir(nas);
+  await fs.symlink(nas,path.join(work,'encoded'));
+  const c=config({WORK_ROOT:work,MEDIA_ROOTS:nas,CONFIG_DIR:path.join(root,'config')});
+  await assert.rejects(createService(c,{background:false}),/symlinks/);
+  assert.deepEqual(await fs.readdir(nas),[],'startup must not create engine staging on the library drive');
+  await assert.rejects(fs.stat(c.configDir),{code:'ENOENT'});
+});
+
+test('library scan applies filters recursively and exposes searchable persisted candidates',async t=>{
+  const e=await setup(t),first=await original(e,'Movies/First.2026.mp4'),second=await original(e,'Series/Show.S01E01.mkv');
+  e.archive.setScanFilters({minSizeGB:0,maxSizeGB:0,minDurationMinutes:0,minSourceHeight:0,skipCodecs:[]});
+  assert.equal(e.archive.scanLibrary(),true);await e.archive.libraryScanPromise;
+  let result=e.archive.libraryStatus({state:'eligible',q:'Show',limit:'30',offset:0});
+  assert.equal(result.total,1);assert.equal(result.items[0].path,second);assert.equal(result.counts.eligible,2);
+  e.archive.setScanFilters({minSizeGB:1});assert.equal(e.archive.scanLibrary(),true);await e.archive.libraryScanPromise;
+  result=e.archive.libraryStatus({state:'skipped',limit:'all',offset:0});assert.equal(result.total,2);assert.match(result.items[0].reason,/minimum/);
+  await fs.unlink(first);e.archive.setScanFilters({minSizeGB:0});e.archive.scanLibrary();await e.archive.libraryScanPromise;
+  assert.equal(e.archive.libraryStatus({state:'all',limit:'all',offset:0}).total,1);
+});
+
 test('selected downloads preserve NAS originals, record paths and sidecars, and never upload automatically',async t=>{
   const e=await setup(t),source=await original(e,'Folder/Film.2026.mp4');
   await fs.writeFile(source.replace('.mp4','.da.srt'),'subtitle');await fs.writeFile(path.join(path.dirname(source),'unrelated.txt'),'keep');
@@ -63,6 +86,18 @@ test('only selected approved item uploads; shared metadata and unrelated episode
   assert.equal(await fingerprint(subtitle),stamp);assert.equal(await fs.readFile(extra,'utf8'),'added since download');assert.ok(await fs.stat(second));
   assert.equal(e.archive.row(rows[1].id).state,'local');assert.equal(r.data.upload.files.length,1);
   assert.equal(e.store.archiveHeld(rows[0].local_source),true);
+});
+
+test('per-item unsafe server return deletes only the registered original video',async t=>{
+  const e=await setup(t),source=await original(e,'Folder/Film.2026.mp4'),[r]=await download(e,[source]);
+  const unrelated=path.join(path.dirname(source),'keep.txt');await fs.writeFile(unrelated,'keep');
+  const output=path.join(e.c.outputRoot,r.id+'.mkv');await fs.mkdir(path.dirname(output),{recursive:true});await fs.writeFile(output,'new encoded bytes');
+  const watch=e.store.watches()[0],job=e.store.enqueue(watch,r.local_source,path.basename(r.local_source),'unsafe-test',{sidecars:[],subtitles:[]},r.data.manifest[0].size);
+  e.store.updateJob(job,{state:'completed',output,output_bytes:(await fs.stat(output)).size,output_sha256:await digest(output)});
+  assert.throws(()=>e.archive.enqueueUpload([r.id],'SEND OG ERSTAT',[r.id]),/SEND USIKKERT/);
+  e.archive.enqueueUpload([r.id],'SEND USIKKERT',[r.id]);while(e.archive.active||e.archive.row(r.id).state==='queued_upload'){await e.archive.workerPromise;e.archive.tick();}
+  const row=e.archive.row(r.id),target=source.replace('.mp4','.mkv');assert.equal(row.state,'sent',row.data.error);
+  await assert.rejects(fs.stat(source),{code:'ENOENT'});assert.equal(await fs.readFile(target,'utf8'),'new encoded bytes');assert.equal(await fs.readFile(unrelated,'utf8'),'keep');
 });
 
 test('changed original, replacement collision, and insufficient space stop before original changes',async t=>{

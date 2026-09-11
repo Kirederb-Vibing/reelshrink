@@ -7,7 +7,7 @@ import { config, mediaPath, inside, processingPath, settings, FILTER_DEFAULTS, f
 import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
 import { Returner } from './returner.mjs';
-import { Archive } from './archive.mjs';
+import { Archive, prepareWork } from './archive.mjs';
 import { run } from './media.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
@@ -23,6 +23,7 @@ async function body(req) {
   return data;
 }
 export async function createService(c,{background=true}={}) {
+  await prepareWork(c);
   const encoders=await run(c.ffmpeg,['-hide_banner','-encoders'],{timeout:10000});
   if(!encoders.out.includes('libx265')||!encoders.out.includes('libx264')) throw new Error('FFmpeg skal indeholde libx265 og libx264.');
   await run(c.ffprobe,['-version'],{timeout:10000});
@@ -75,16 +76,19 @@ export async function createService(c,{background=true}={}) {
       }
       if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,workRoot:c.workRoot,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
       if(p==='/api/archive'&&method==='GET') return json(res,200,archive.status());
+      if(p==='/api/archive/library'&&method==='GET') return json(res,200,archive.libraryStatus(Object.fromEntries(url.searchParams)));
+      if(p==='/api/archive/library/settings'&&method==='PUT') return json(res,200,archive.setScanFilters(await body(req)));
+      if(p==='/api/archive/library/scan'&&method==='POST') {await body(req);return json(res,202,{started:archive.scanLibrary()});}
       if(p==='/api/archive/browse'&&method==='GET') return json(res,200,await archive.browse(url.searchParams.get('path')));
       if(p==='/api/archive/download'&&method==='POST') return json(res,202,{ids:await archive.enqueueDownload((await body(req)).paths)});
-      if(p==='/api/archive/upload'&&method==='POST') {const data=await body(req);archive.enqueueUpload(data.ids,data.confirmation);return json(res,202,{ok:true});}
+      if(p==='/api/archive/upload'&&method==='POST') {const data=await body(req);archive.enqueueUpload(data.ids,data.confirmation,data.unsafeIds);return json(res,202,{ok:true});}
       if(p==='/api/archive/cleanup'&&method==='POST') {const data=await body(req);await archive.cleanup(data.ids,data.confirmation);return json(res,200,{ok:true});}
       const archiveMatch=p.match(/^\/api\/archive\/([a-f0-9-]+)\/retry$/);
       if(archiveMatch&&method==='POST') {await body(req);archive.retry(archiveMatch[1]);return json(res,202,{ok:true});}
       if(p==='/api/returns'&&method==='GET') return json(res,200,returner.status());
       if(p==='/api/returns/settings'&&method==='PUT') return json(res,200,await returner.setOptions(await body(req)));
       if(p==='/api/returns/scan'&&method==='POST') {await body(req);returner.scan();return json(res,202,{ok:true});}
-      if(p==='/api/returns/move'&&method==='POST') {returner.enqueue((await body(req)).ids);return json(res,202,{ok:true});}
+      if(p==='/api/returns/move'&&method==='POST') {const data=await body(req);returner.enqueue(data.ids,data.unsafeIds);return json(res,202,{ok:true});}
       if(p==='/api/returns/delete-old'&&method==='POST') {const data=await body(req);return json(res,200,await returner.deleteOld(data.ids,data.confirmation));}
       const returnMatch=p.match(/^\/api\/returns\/([a-f0-9-]+)\/(choose|restore|retry)$/);
       if(returnMatch&&method==='POST') {
