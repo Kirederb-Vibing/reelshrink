@@ -4,8 +4,8 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
-import { inside, settings } from './config.mjs';
-import { bundleFor } from './media.mjs';
+import { inside, settings, FILTER_DEFAULTS, filterReason } from './config.mjs';
+import { bundleFor, discover, probe } from './media.mjs';
 import { digest, fingerprint } from './returner.mjs';
 
 const extensions = new Set(['.mkv','.mp4','.m4v','.avi','.mov','.ts','.m2ts','.webm']);
@@ -13,21 +13,31 @@ const exists = async p => { try { await fs.lstat(p); return true; } catch(e) { i
 const filesIn = (source,bundle) => [...new Set([source,...bundle.sidecars,...bundle.subtitles.map(s=>s.path)])];
 const conflict = message => { throw new Error(message); };
 
+// Run before server/engine canonicalize outputRoot or create staging directories.
+export async function prepareWork(c) {
+  if(!c.workRoot) return;
+  if(c.outputRoot!==path.join(c.workRoot,'encoded')) conflict('Encoding-output skal ligge i arbejdsarkivets encoded-mappe.');
+  for(const dir of [c.workRoot,...c.mediaRoots,...c.returnInputRoots,c.outputRoot]) {
+    await fs.mkdir(dir,{recursive:true});
+    if(await fs.realpath(dir)!==dir) conflict('Arbejdsarkivet må ikke indeholde symlinks.');
+    const type=Number((await fs.statfs(dir)).type)>>>0;
+    if([0x6969,0xff534d42,0xfe534d42].includes(type)) conflict('Arbejdsarkivet er på NFS/SMB. Vælg en lokal disk.');
+  }
+}
+
 // A declared drive type is descriptive. Identity checks also detect a vanished mount
 // being replaced by an empty host directory. No library is polled by this worker.
 export class Archive {
   constructor(c,store,engine,returner) {
     Object.assign(this,{c,store,engine,returner,active:null,stopping:false});
     this.controller=new AbortController();
+    this.libraryScanning=false;this.libraryScanError=null;this.libraryLastScan=null;
+    this.libraryProgress={drive:null,found:0,checked:0,eligible:0};
+    this.libraryScanController=new AbortController();
   }
   async init() {
     if(!this.c.workRoot) return;
-    for(const dir of [this.c.workRoot,...this.c.mediaRoots,...this.c.returnInputRoots,this.c.outputRoot]) {
-      await fs.mkdir(dir,{recursive:true});
-      if(await fs.realpath(dir)!==dir) conflict('Arbejdsarkivet må ikke indeholde symlinks.');
-      const type=Number((await fs.statfs(dir)).type)>>>0;
-      if([0x6969,0xff534d42,0xfe534d42].includes(type)) conflict('Arbejdsarkivet er på NFS/SMB. Vælg en lokal disk.');
-    }
+    await prepareWork(this.c);
     for(const drive of this.c.archiveDrives) {
       if(await fs.realpath(drive.path)!==drive.path) conflict('Biblioteksdrevet må ikke være et symlink: '+drive.path);
     }
@@ -50,7 +60,82 @@ export class Archive {
     const row=this.store.get("SELECT * FROM returns WHERE original=? AND mode='reelshrink' AND state='deleted' ORDER BY updated DESC LIMIT 1",r.local_source);
     return row?{...row,details:JSON.parse(row.details)}:null;
   }
-  status() { return {enabled:Boolean(this.c.workRoot),workRoot:this.c.workRoot,drives:this.c.archiveDrives,active:this.active,items:this.list().map(r=>({...r,canSend:r.state==='local'&&Boolean(this.result(r))}))}; }
+  status() { return {enabled:Boolean(this.c.workRoot),workRoot:this.c.workRoot,drives:this.c.archiveDrives,active:this.active,items:this.list().map(r=>({...r,canSend:r.state==='local'&&Boolean(this.result(r)),canUnsafeSend:r.state==='local'&&Boolean(this.store.get("SELECT id FROM jobs WHERE source=? AND state='completed' AND output IS NOT NULL ORDER BY updated DESC LIMIT 1",r.local_source))}))}; }
+  scanFilters() {
+    const row=this.store.get("SELECT value FROM settings WHERE key='archive_scan_filters'");
+    const raw=row?JSON.parse(row.value):FILTER_DEFAULTS;
+    const validated=settings({...settings(),...raw});
+    return Object.fromEntries(Object.keys(FILTER_DEFAULTS).map(k=>[k,validated[k]]));
+  }
+  setScanFilters(input) {
+    if(!input||typeof input!=='object'||Array.isArray(input)) conflict('Ugyldige scanfiltre.');
+    const allowed=new Set(Object.keys(FILTER_DEFAULTS));
+    if(Object.keys(input).some(k=>!allowed.has(k))) conflict('Ukendt scanfilter.');
+    const validated=settings({...settings(),...this.scanFilters(),...input});
+    const filters=Object.fromEntries(Object.keys(FILTER_DEFAULTS).map(k=>[k,validated[k]]));
+    this.store.run("INSERT OR REPLACE INTO settings VALUES ('archive_scan_filters',?)",JSON.stringify(filters));
+    return filters;
+  }
+  libraryStatus({state='eligible',q='',limit='30',offset=0}={}) {
+    if(!this.c.workRoot)return {filters:this.scanFilters(),scanning:false,scanError:null,lastScan:null,progress:{drive:null,found:0,checked:0,eligible:0},counts:{},items:[],total:0,limit:Number(limit)||30,offset:0};
+    if(!['eligible','skipped','error','all'].includes(state)) conflict('Ugyldigt biblioteksfilter.');
+    q=String(q||'').slice(0,150);limit=limit==='all'?'all':Number(limit);offset=Number(offset);
+    if((limit!=='all'&&(!Number.isSafeInteger(limit)||limit<1||limit>500))||!Number.isSafeInteger(offset)||offset<0) conflict('Ugyldig side. Brug 1–500 eller all.');
+    const clauses=[],params=[];
+    if(state!=='all'){clauses.push('state=?');params.push(state);}
+    if(q){clauses.push('(relative LIKE ? OR path LIKE ?)');params.push('%'+q+'%','%'+q+'%');}
+    const where=clauses.length?'WHERE '+clauses.join(' AND '):'';
+    const total=this.store.get(`SELECT COUNT(*) AS n FROM archive_candidates ${where}`,...params).n;
+    const items=this.store.all(`SELECT * FROM archive_candidates ${where} ORDER BY relative,path LIMIT ? OFFSET ?`,...params,limit==='all'?-1:limit,offset)
+      .map(row=>({...row,imported:Boolean(this.store.get('SELECT id FROM archive_items WHERE source=?',row.path))}));
+    const counts=Object.fromEntries(this.store.all('SELECT state,COUNT(*) AS n FROM archive_candidates GROUP BY state').map(r=>[r.state,r.n]));
+    return {filters:this.scanFilters(),scanning:this.libraryScanning,scanError:this.libraryScanError,lastScan:this.libraryLastScan,progress:this.libraryProgress,counts,items,total,limit,offset};
+  }
+  scanLibrary() {
+    this.enabled();
+    if(this.libraryScanning) return false;
+    this.libraryScanning=true;this.libraryScanError=null;this.libraryProgress={drive:null,found:0,checked:0,eligible:0};
+    this.libraryScanPromise=this.performLibraryScan().catch(e=>{this.libraryScanError=e.message;}).finally(()=>{this.libraryScanning=false;this.libraryLastScan=Date.now();});
+    return true;
+  }
+  async performLibraryScan() {
+    const filters=this.scanFilters(),errors=[];
+    const needsProbe=Boolean(filters.minDurationMinutes||filters.minSourceHeight||filters.skipCodecs.length);
+    for(const drive of this.c.archiveDrives) {
+      const scanId=randomUUID();this.libraryProgress.drive=drive.path;
+      try {
+        await this.allowed(drive.path,drive.path,true);
+        const videos=await discover(drive.path,this.libraryScanController.signal);
+        this.libraryProgress.found+=videos.length;
+        for(const source of videos) {
+          if(this.stopping||this.libraryScanController.signal.aborted) conflict('Biblioteksscanning afbrudt.');
+          let stat,media=null,state='eligible',reason=null;
+          try {
+            stat=await this.allowed(source,drive.path);
+            reason=filterReason(filters,stat.size);
+            if(!reason&&needsProbe) media=await probe(source,this.c,this.libraryScanController.signal);
+            reason??=media?filterReason(filters,stat.size,media):null;
+            if(reason)state='skipped';
+          } catch(e) {
+            state='error';reason='Kunne ikke analysere filen: '+e.message;
+            stat??={size:0,mtimeMs:0};
+          }
+          this.store.run(`INSERT INTO archive_candidates
+            (path,drive_path,relative,size,mtime_ms,duration,height,codec,state,reason,scan_id,updated)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(path) DO UPDATE SET drive_path=excluded.drive_path,relative=excluded.relative,size=excluded.size,
+            mtime_ms=excluded.mtime_ms,duration=excluded.duration,height=excluded.height,codec=excluded.codec,
+            state=excluded.state,reason=excluded.reason,scan_id=excluded.scan_id,updated=excluded.updated`,
+            source,drive.path,path.relative(drive.path,source),Number(stat.size),Number(stat.mtimeMs),media?.duration??null,
+            media?.video.height??null,media?.video.codec_name??null,state,reason,scanId,Date.now());
+          this.libraryProgress.checked++;if(state==='eligible')this.libraryProgress.eligible++;
+        }
+        this.store.run('DELETE FROM archive_candidates WHERE drive_path=? AND scan_id<>?',drive.path,scanId);
+      } catch(e) {errors.push(path.basename(drive.path)+': '+e.message);}
+    }
+    this.libraryProgress.drive=null;
+    if(errors.length) throw new Error(errors.join(' · '));
+  }
   ids(ids) { if(!Array.isArray(ids)||!ids.length||ids.length>100||new Set(ids).size!==ids.length||ids.some(s=>typeof s!=='string')) conflict('Vælg 1–100 forskellige emner.'); }
   drive(file) { return this.c.archiveDrives.find(d=>inside(file,d.path))||conflict('Stien ligger uden for biblioteksdrevene.'); }
   async allowed(file,root,directory=false) {
@@ -97,13 +182,15 @@ export class Archive {
     } catch(e){this.store.db.exec('ROLLBACK');throw e;}
     this.tick();return rows.map(r=>r.id);
   }
-  enqueueUpload(ids,confirmation) {
+  enqueueUpload(ids,confirmation,unsafeIds=[]) {
     this.enabled();this.ids(ids);
-    if(confirmation!=='SEND OG ERSTAT') conflict('Bekræft med SEND OG ERSTAT.');
+    if(!Array.isArray(unsafeIds)||unsafeIds.some(id=>!ids.includes(id))||new Set(unsafeIds).size!==unsafeIds.length) conflict('Ugyldigt valg af usikker servertilbageførsel.');
+    const unsafe=new Set(unsafeIds);
+    if(confirmation!==(unsafe.size?'SEND USIKKERT':'SEND OG ERSTAT')) conflict('Bekræft med '+(unsafe.size?'SEND USIKKERT.':'SEND OG ERSTAT.'));
     const rows=ids.map(id=>this.row(id));
-    if(rows.some(r=>!r||r.state!=='local'||!this.result(r))) conflict('Gennemfør lokal tilbageflytning og godkend først resultatet ved at slette OLD i OLD-køen.');
+    if(rows.some(r=>!r||r.state!=='local'||(unsafe.has(r.id)?!this.store.get("SELECT id FROM jobs WHERE source=? AND state='completed' AND output IS NOT NULL",r.local_source):!this.result(r)))) conflict('Valgte emner mangler godkendelse efter sletning af OLD eller en færdig encoding til usikker overførsel.');
     if(this.returner.active||this.returner.scanning||this.engine.active) conflict('Vent til igangværende encoding eller tilbageflytning er afsluttet.');
-    for(const r of rows) this.update(r.id,'queued_upload',{...r.data,phase:'Valgt til afsendelse',bytes:0,error:null});
+    for(const r of rows) this.update(r.id,'queued_upload',{...r.data,unsafeUpload:unsafe.has(r.id),phase:unsafe.has(r.id)?'Valgt til usikker afsendelse':'Valgt til afsendelse',bytes:0,error:null,upload:null});
     this.tick();
   }
   retry(id) {
@@ -135,7 +222,7 @@ export class Archive {
     try{await this.workerPromise;}finally{this.active=null;this.workerPromise=null;}
   }
   start() { if(this.c.workRoot){this.timer=setInterval(()=>this.tick(),1000);this.tick();} }
-  async stop() { this.stopping=true;clearInterval(this.timer);this.controller.abort();await this.workerPromise; }
+  async stop() { this.stopping=true;clearInterval(this.timer);this.controller.abort();this.libraryScanController.abort();await Promise.allSettled([this.workerPromise,this.libraryScanPromise]); }
   tick() {
     if(!this.c.workRoot||this.active||this.stopping) return;
     const r=this.list().reverse().find(r=>['queued_download','queued_upload'].includes(r.state));if(!r)return;
@@ -190,6 +277,7 @@ export class Archive {
     this.update(r.id,'local',{...r.data,phase:'Hentet – klar til lokal encoding',error:null,speed:0});this.engine.scan();
   }
   async upload(r) {
+    if(r.data.unsafeUpload) return this.unsafeUpload(r);
     await this.origin(r);
     const d=r.data,localDir=path.dirname(r.local_source);
     const resuming=Boolean(d.upload);
@@ -270,5 +358,48 @@ export class Archive {
     for(const f of j.files) if(await exists(f.temp)){await this.unchanged(f.temp,f.tempStamp,j.dir);await fs.unlink(f.temp);}
     await this.sync(j.dir);await fs.rmdir(j.dir);await this.sync(d.originalDir);
     this.update(r.id,'sent',{...d,phase:'Sendt og verificeret – lokal kopi bevaret',bytes:d.total,speed:0,error:null});
+  }
+  async unsafeUpload(r) {
+    await this.origin(r);
+    const d=r.data,localDir=path.dirname(r.local_source);
+    await this.allowed(localDir,this.c.mediaRoots[0],true);
+    if(this.engine.active||this.returner.active||this.returner.scanning) conflict('Lokal behandling er aktiv. Prøv igen når den er færdig.');
+    if(!d.upload) {
+      const job=this.store.get("SELECT * FROM jobs WHERE source=? AND state='completed' AND output IS NOT NULL ORDER BY updated DESC LIMIT 1",r.local_source);
+      if(!job) conflict('Der findes ingen færdig ReelShrink-encoding for emnet.');
+      await this.allowed(job.output,this.c.outputRoot);
+      const hash=await digest(job.output);
+      if(job.output_sha256&&hash!==job.output_sha256) conflict('Encoding-outputtet er ændret siden færdiggørelsen.');
+      const target=path.join(d.originalDir,path.basename(r.source,path.extname(r.source))+path.extname(job.output));
+      await this.allowed(path.dirname(target),d.originalDir,true);
+      const stat=await fs.stat(job.output),temp=path.join(d.originalDir,'.reelshrink-unsafe-new-'+r.id);
+      if(await exists(temp)) conflict('En tidligere usikker serveroverførsel kræver manuel gennemgang.');
+      const disk=await fs.statfs(d.originalDir);
+      if(disk.bavail*disk.bsize<stat.size+this.c.minFreeBytes) conflict('For lidt plads på destinationsdrevet.');
+      d.upload={unsafe:true,phase:'copying',files:[{local:job.output,target,temp,size:stat.size,stamp:await fingerprint(job.output),hash}],removals:[{source:r.source}]};
+      d.bytes=0;d.total=stat.size;this.update(r.id,'uploading',d);
+    }
+    const j=d.upload,f=j.files[0];
+    if(j.phase==='copying') {
+      await this.unchanged(f.local,f.stamp,this.c.outputRoot);
+      if(await exists(f.temp)){await this.allowed(f.temp,d.originalDir);await fs.unlink(f.temp);}
+      d.bytes=0;
+      d.phase='Sender usikkert til server';this.update(r.id,'uploading',d);
+      if(await this.copy(f.local,f.temp,r,'uploading')!==f.hash) conflict('Den lokale fil ændrede indhold under overførsel.');
+      if(await digest(f.temp)!==f.hash) conflict('Checksumfejl på destinationsdrevet.');
+      f.tempStamp=await fingerprint(f.temp);j.phase='installing';d.phase='Sletter registreret original og installerer ny fil';this.update(r.id,'uploading',d);
+    }
+    if(j.phase==='installing') {
+      const installed=await exists(f.target)&&await digest(f.target)===f.hash;
+      if(!installed) {
+        await this.unchanged(f.temp,f.tempStamp,d.originalDir);
+        if(await exists(r.source)){await this.allowed(r.source,d.originalDir);await fs.unlink(r.source);await this.sync(d.originalDir);}
+        if(f.target!==r.source&&await exists(f.target)){await this.allowed(f.target,d.originalDir);await fs.unlink(f.target);await this.sync(d.originalDir);}
+        await fs.rename(f.temp,f.target);await this.sync(d.originalDir);
+      }
+      if(await digest(f.target)!==f.hash) conflict('Den installerede serverfil bestod ikke checksumkontrollen.');
+      f.tempStamp=await fingerprint(f.target);j.phase='done';d.phase='Usikkert sendt – registreret original slettet';this.update(r.id,'uploading',d);
+    }
+    this.update(r.id,'sent',{...d,phase:'Usikkert sendt og checksumkontrolleret – lokal kopi bevaret',bytes:d.total,speed:0,error:null});
   }
 }

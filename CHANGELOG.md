@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — 2026-09-11
+
+- Rekursivt scan af alle konfigurerede biblioteksdrev direkte fra Arbejdsarkiv-fanen.
+- Encoding-lignende filtre, søgning, statusvisning, sideinddeling og valg af op til 100 filer til Work Library.
+- Vedvarende scanresultater med filstørrelse, varighed, opløsning, codec og synlig filter-/fejlårsag.
+- Usikker tilbageflytning som eksplicit valg pr. fil både lokalt og tilbage til serveren.
+- Usikker tilstand kræver en præcis ReelShrink-jobforbindelse, checksumkontrollerer kopien og sletter kun den registrerede originalvideo; medietest og OLD-kø springes over.
+- Arbejdsstier valideres før Engine opretter output- og stagingmapper.
+
 ## 0.4.0
 
 - Lokal arbejdsarkivtilstand med separat hente-/sendefane og bytebaserede statusbarer.

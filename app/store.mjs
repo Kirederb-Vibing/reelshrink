@@ -44,7 +44,14 @@ export class Store {
         id TEXT PRIMARY KEY, source TEXT NOT NULL UNIQUE, local_source TEXT NOT NULL,
         state TEXT NOT NULL, data TEXT NOT NULL, updated INTEGER NOT NULL
       );
-      PRAGMA user_version=4;`);
+      CREATE TABLE IF NOT EXISTS archive_candidates (
+        path TEXT PRIMARY KEY, drive_path TEXT NOT NULL, relative TEXT NOT NULL,
+        size INTEGER NOT NULL, mtime_ms REAL NOT NULL, duration REAL,
+        height INTEGER, codec TEXT, state TEXT NOT NULL, reason TEXT,
+        scan_id TEXT NOT NULL, updated INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS archive_candidate_state ON archive_candidates(state,updated);
+      PRAGMA user_version=5;`);
   }
   all(sql, ...p) { return this.db.prepare(sql).all(...p); }
   get(sql, ...p) { return this.db.prepare(sql).get(...p); }

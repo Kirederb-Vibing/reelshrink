@@ -1,6 +1,6 @@
 # Verifikation af v0.3.0
 
-10. september 2026: **50 tests bestået, 0 fejlet, 0 sprunget over** med Node.js 24.19.0 og rigtig FFmpeg. `npm run check` er også bestået. Alle eksisterende encoding-/API-tests er genkørt.
+11. september 2026: **71 tests bestået, 0 fejlet, 0 sprunget over** med Node.js 24 og rigtig FFmpeg. `npm run check` er også bestået. Testpakken dækker nu rekursivt arbejdsarkivscan med filtre og vedvarende resultater samt usikker tilbageflytning pr. fil lokalt og til server. Begge usikre forløb kræver ReelShrink-jobhistorik og tester, at andre filer i originalmappen bevares.
 
 Nye tests dækker præcist jobmatch, rigtig encoding med SRT efterfulgt af tilbageflytning, automatisk overvågning, manuel navnesammenligning, tvetydige matches, remakes/editions/episoder, ændrede originaler og outputchecksums, utilstrækkelig plads, aktive jobs, OLD-/mål-/sidefilkonflikter, korrupte og forkert lange videoer, symlinks/stigrænser, kopiering uden hardlinkstøtte, afbrudt publicering/genstart, gendannelse, checksum-beskyttet manuel OLD-sletning, stop af automatisk kø og vedvarende beskyttelse mod gen-encoding.
 

@@ -114,7 +114,7 @@ export class Returner {
     return this.store.all('SELECT id FROM returns ORDER BY updated DESC, id').map(r => this.row(r.id));
   }
   status() {
-    return { workRoot: this.c.workRoot, options: this.options(), scanning: this.scanning, active: this.active, scanError: this.scanError, lastScan: this.lastScan, inputRoots: this.inputRoots(), mediaRoots: this.c.mediaRoots, stableSeconds: this.c.stableSeconds, items: this.list() };
+    return { workRoot: this.c.workRoot, options: this.options(), scanning: this.scanning, active: this.active, scanError: this.scanError, lastScan: this.lastScan, inputRoots: this.inputRoots(), mediaRoots: this.c.mediaRoots, stableSeconds: this.c.stableSeconds, items: this.list().map(r => ({ ...r, canUnsafe: r.mode === 'reelshrink' && Boolean(r.details.jobId) && ['ready','blocked','failed'].includes(r.state) })) };
   }
   update(id, fields) {
     const keys = Object.keys(fields);
@@ -197,13 +197,17 @@ export class Returner {
     await this.allowed(original, this.c.mediaRoots);
     this.update(id, { original, state: 'ready', error: 'Original valgt manuelt.', details: JSON.stringify({ ...r.details, chosen: true, targetStamp: await fingerprint(original) }) });
   }
-  enqueue(ids) {
+  enqueue(ids, unsafeIds = []) {
     if (this.scanning) throw new Error('Vent til scanningen er afsluttet.');
-    this.validateIds(ids);
+    this.validateIds(ids); if (!Array.isArray(unsafeIds) || unsafeIds.some(id => !ids.includes(id)) || new Set(unsafeIds).size !== unsafeIds.length) throw new Error('Ugyldigt valg af usikker tilbageflytning.');
+    const unsafe = new Set(unsafeIds);
     const rows = ids.map(id => this.row(id));
-    if (rows.some(r => !r || r.state !== 'ready')) throw new Error('Alle valgte filer skal være klar til flytning.');
+    if (rows.some(r => {
+      if (!r) return true;
+      return unsafe.has(r.id) ? !(r.mode === 'reelshrink' && r.details.jobId && ['ready','blocked','failed'].includes(r.state)) : r.state !== 'ready';
+    })) throw new Error('Alle valgte filer skal være klar, eller markeres som usikker ReelShrink-tilbageflytning.');
     if (new Set(rows.map(r => r.original)).size !== rows.length) throw new Error('Flere valgte filer erstatter samme original. Vælg én version.');
-    for (const r of rows) this.update(r.id, { state: 'queued', error: 'Venter på kontrol og flytning.' });
+    for (const r of rows) this.update(r.id, { state: 'queued', error: unsafe.has(r.id) ? 'Venter på usikker tilbageflytning.' : 'Venter på kontrol og flytning.', details: JSON.stringify({ ...r.details, unsafe: unsafe.has(r.id) }) });
     this.tick();
   }
   validateIds(ids) {
@@ -238,6 +242,7 @@ export class Returner {
     if (this.engine.active && this.store.job(this.engine.active.id)?.source === r.original) {
       this.update(id, { state: 'failed', error: 'Originalen encodes lige nu. Prøv igen når jobbet er færdigt.' }); return;
     }
+    if (r.details.unsafe) return this.unsafeTransfer(r);
     this.update(id, { state: 'working', error: 'Kontrollerer medier og kopierer til destinationsdisken…' });
     let journal = null;
     try {
@@ -321,6 +326,45 @@ export class Returner {
     } catch (e) {
       this.update(id, { state: journal ? 'attention' : 'failed', error: e.message });
       // Keep all journal-owned files for explicit recovery after partial operations.
+    }
+  }
+  async unsafeTransfer(r) {
+    const id = r.id;
+    this.update(id, { state: 'working', error: 'Usikker flytning: kopierer uden medietest…' });
+    let journal = null;
+    try {
+      const input = await this.allowed(r.input, this.inputRoots());
+      await this.allowed(r.original, this.c.mediaRoots);
+      const job = this.store.get("SELECT * FROM jobs WHERE id=? AND state='completed'", r.details.jobId);
+      if (!job || job.output !== input || job.source !== r.original) throw new Error('Den præcise ReelShrink-jobforbindelse findes ikke længere.');
+      const target = path.join(path.dirname(r.original), path.basename(r.original, path.extname(r.original)) + path.extname(input));
+      await this.allowed(path.dirname(target), this.c.mediaRoots, true);
+      const temp = path.join(path.dirname(target), '.reelshrink-unsafe-new-' + id);
+      const backup = path.join(path.dirname(r.original), '.reelshrink-unsafe-old-' + id);
+      if (await exists(temp) || await exists(backup)) throw new Error('En tidligere usikker flytning kræver manuel gendannelse først.');
+      const inputBytes = (await fs.stat(input)).size, originalBytes = (await fs.stat(r.original)).size;
+      const disk = await fs.statfs(path.dirname(target));
+      if (disk.bavail * disk.bsize < inputBytes + this.c.minFreeBytes) throw new Error('For lidt ledig plads på destinationsdisken.');
+      const hash = await digest(input), originalHash = await digest(r.original);
+      journal = { ...r.details, unsafe: true, target, backup, temp, sidecars: [], hash, originalHash, inputBytes, originalBytes, phase: 'copying' };
+      this.update(id, { details: JSON.stringify(journal) });
+      await fs.copyFile(input, temp, constants.COPYFILE_EXCL); await this.sync(temp);
+      if (await digest(temp) !== hash) throw new Error('Kopieringen bestod ikke checksumkontrollen.');
+      journal.phase = 'prepared'; this.update(id, { details: JSON.stringify(journal) });
+      await fs.rename(r.original, backup); await this.sync(path.dirname(backup));
+      journal.phase = 'backup'; this.update(id, { details: JSON.stringify(journal) });
+      if (target !== r.original && await exists(target)) { await this.allowed(target, this.c.mediaRoots); await fs.unlink(target); }
+      await fs.rename(temp, target); await this.sync(path.dirname(target));
+      if (await digest(target) !== hash) throw new Error('Den installerede fil bestod ikke checksumkontrollen.');
+      journal.targetStamp = await fingerprint(target); journal.phase = 'installed'; this.update(id, { details: JSON.stringify(journal) });
+      this.store.run('INSERT OR REPLACE INTO returned_files VALUES (?,?,?)', target, journal.targetStamp, id);
+      this.store.run("UPDATE jobs SET state='cancelled',error='Originalen er erstattet via usikker Tilbageflytning.',updated=? WHERE source=? AND state='queued'", Date.now(), r.original);
+      await fs.unlink(input); await this.sync(path.dirname(input));
+      await fs.unlink(backup); await this.sync(path.dirname(backup));
+      journal.phase = 'done';
+      this.update(id, { state: 'deleted', error: 'Usikkert flyttet. Den registrerede original blev slettet uden OLD-kø.', details: JSON.stringify(journal) });
+    } catch (e) {
+      this.update(id, { state: journal ? 'attention' : 'failed', error: e.message });
     }
   }
   async restore(id) {
