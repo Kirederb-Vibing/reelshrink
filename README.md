@@ -2,9 +2,9 @@
 
 En lille, selvhostet tjeneste til at komprimere film og serier med en dansk web-GUI, automatisk mappeovervågning og **valgbare undertekster**.
 
-ReelShrink kopierer valgte videoer fra NAS, lokalt bibliotek eller browser til Work. Efter FFmpeg-encoding og fuld kontrol slettes Work-originalen automatisk. Du vælger selv hvilke færdige resultater der skal tilbage til den registrerede originalplacering. Det nye Work-workflow bruger ingen OLD-kø.
+ReelShrink kopierer valgte videoer fra NAS, lokalt bibliotek eller browser til Work. Efter FFmpeg-encoding og fuld kontrol slettes Work-originalen automatisk. Du vælger selv hvilke færdige resultater der skal tilbage til den registrerede originalplacering. Hurtig/Grundig bruger ingen OLD-kø. SPEEDY RISKY beholder Work-originalen som WORK_OLD indtil din batchgodkendelse.
 
-**Version:** 0.6.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
+**Version:** 0.7.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
 
 > Første udgivelse. [GitHub-repository](https://github.com/Kirederb-Vibing/reelshrink) · [Buildstatus](https://github.com/Kirederb-Vibing/reelshrink/actions/workflows/publish.yml). Image: `ghcr.io/kirederb-vibing/reelshrink:latest`. Imaget er tilgængeligt, når publiceringsworkflowet er grønt; kontroller pakkens adgang ved første installation.
 
@@ -27,17 +27,31 @@ ReelShrink kopierer valgte videoer fra NAS, lokalt bibliotek eller browser til W
 - Fuld dekodningskontrol af færdig video og lyd før publicering i outputmappen.
 - Image-opskrift og GHCR-workflow for `linux/amd64` og `linux/arm64`.
 
-## Work: ét workflow for lokale drev og NAS (v0.6)
+## Work: lokale drev og NAS (v0.7)
 
 1. Scan biblioteker, filtrér og vælg **Hent til Work Library**, eller upload en videofil fra browseren.
 2. Vælg encodingprofil under **Encoding → Indstillinger**. Der er én automatisk Work-overvågning.
-3. ReelShrink encoder og kontrollerer video, lyd og undertekster. Et accepteret resultat SHA-256-kontrolleres, hvorefter den store Work-original slettes.
+3. Vælg Grundig, Hurtig eller SPEEDY RISKY. Efter lokal kontrol slettes Work-originalen i Grundig/Hurtig; SPEEDY RISKY gemmer den som WORK_OLD.
 4. Under **Work** vælges resultater til **Send valgte tilbage**. Ingen automatisk afsendelse.
-5. Den nye destinationskopi kontrolleres før originalvideoen erstattes. Derefter kan Work-kopien fjernes.
+5. Grundig/Hurtig kontrollerer den nye destinationskopi før erstatning. SPEEDY RISKY springer NAS-indholdskontrollen over og kræver senere godkendelse af sletning af WORK_OLD.
 
 Work giver uploadfremdrift, stop af hentekø, genfinding af filer, omdøbning af Work-mapper, valg af destination for browseruploads, download af resultater og fjernelse af enkelte/valgte Work-emner. Browseren deler ikke den oprindelige filsti: vælg en eksisterende destinationsmappe eller download resultatet.
 
 Mapper får læsbare navne, fx `/work/library/Film.2026/` og `/work/encoded/Film.2026/`. Navnesammenfald får ` (2)`, ` (3)` osv. Originalstien gemmes separat i databasen.
+
+### Hastighed, buffer og batches
+
+Work-siden har en buffer på **1–5 film/afsnit** (standard 3), separate tider for hentning, encoding, kontrol og afsendelse samt valgfri automatisk tilbageførsel af de importer, du vælger. Hentning/afsendelse kan overlappe encoding; overførslerne kører én ad gangen. En afsluttet import behøver ingen ekstra 60-sekunders ventetid; ændrede eller manuelt tilføjede filer bruger fortsat stabilitetskontrollen.
+
+| Tilstand | Lokal videokontrol | NAS-kontrol før erstatning | Work-original |
+| --- | --- | --- | --- |
+| Grundig (standard) | Metadata og fuld dekodning | Originalens checksum samt én kontrol af ny kopi | Slettes efter lokal kontrol |
+| Hurtig | Metadata og 10 sekunder fra start/midte/slut | Originalens filmetadata og én checksumkontrol af ny kopi | Slettes efter lokal kontrol |
+| SPEEDY RISKY | Samme udsnitskontrol | Ingen genlæsning af NAS-indhold; stier/filtyper kontrolleres | WORK_OLD indtil batchgodkendelse |
+
+SPEEDY RISKY låser en batch på højst fem valgte biblioteksfiler. Resterende importer bliver i kø. Efter afsendelse skal du kontrollere resultaterne og vælge **Godkend og slet batchens WORK_OLD**. Først da åbnes næste batch; genstart, fejl og fjernede jobregistreringer frigiver ikke automatisk pladser. Browserupload og manuel Work-genfinding bruges i Grundig/Hurtig.
+
+Udsnitskontrol kan overse skader mellem udsnittene. SPEEDY RISKY kan også overse en korrupt destinationskopi eller ændringer i NAS-originalen siden import. Resultatkopier på Work bevares efter batchgodkendelse indtil almindelig Work-oprydning. Minimum ledig diskplads gælder fortsat.
 
 **HDR/Dolby Vision** kan tillades i profilen og pr. job. Farver og dynamiske metadata kan ændres; override er ikke tone mapping eller en garanti om HDR-bevarelse. **Atmos** bevares ved lydkopiering. Stereo-konvertering af TrueHD/E-AC-3 beskyttes konservativt som mulig Atmos og kræver et særskilt tilvalg. Interlaced video er fortsat beskyttet.
 

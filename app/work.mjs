@@ -71,10 +71,11 @@ export class WorkArchive extends Archive {
     } finally {this.tick=oldTick;}
     this.tick();return ids;
   }
-  async finish(r) {
+  async finish(r,verifiedStamp=null) {
     const job=this.completed(r);if(!job)return;
     await this.allowed(job.output,this.c.outputRoot);
-    if(!job.output_sha256||await digest(job.output)!==job.output_sha256)fail('Resultatet er ændret siden encodingkontrollen. Work-originalen bevares.');
+    const resultStamp=await fingerprint(job.output);
+    if(!job.output_sha256||(verifiedStamp!==resultStamp&&await digest(job.output)!==job.output_sha256))fail('Resultatet er ændret siden encodingkontrollen. Work-originalen bevares.');
     await this.sync(job.output);await this.sync(path.dirname(job.output));
     if(await exists(r.local_source)) {
       await this.allowed(r.local_source,this.c.mediaRoots[0]);
@@ -83,11 +84,11 @@ export class WorkArchive extends Archive {
       this.update(r.id,'local',{...r.data,result:job.output,resultHash:job.output_sha256,phase:'Kontrolleret – frigør Work-original'});
       await fs.unlink(r.local_source);await this.sync(path.dirname(r.local_source));
     }
-    this.update(r.id,'ready',{...this.row(r.id).data,result:job.output,resultHash:job.output_sha256,phase:r.data.browserOnly?'Klar til download':'Klar til tilbageførsel',error:null});
+    this.update(r.id,'ready',{...this.row(r.id).data,result:job.output,resultHash:job.output_sha256,resultStamp,phase:r.data.browserOnly?'Klar til download':'Klar til tilbageførsel',error:null});
   }
   async onCompleted(job) {
     const r=this.list().find(r=>r.local_source===job.source&&r.state==='local');
-    if(r)try {await this.finish(r);}catch(e){this.update(r.id,'local',{...this.row(r.id).data,error:e.message});}
+    if(r)try {await this.finish(r,job.verifiedStamp);}catch(e){this.update(r.id,'local',{...this.row(r.id).data,error:e.message});}
   }
   enqueueUpload(ids,confirmation) {
     if(this.editing)fail('En Work-handling er i gang.');
@@ -104,7 +105,7 @@ export class WorkArchive extends Archive {
     const d=r.data;
     if(!d.upload) {
       await this.allowed(d.result,this.c.outputRoot);
-      if(await digest(d.result)!==d.resultHash)fail('Resultatet er ændret siden encodingkontrollen.');
+      if(d.resultStamp){await this.unchanged(d.result,d.resultStamp,this.c.outputRoot);}else if(await digest(d.result)!==d.resultHash)fail('Resultatet er ændret siden encodingkontrollen.');
       const target=path.join(d.originalDir,path.basename(r.source,path.extname(r.source))+path.extname(d.result));
       if(target!==r.source&&await exists(target))fail('Der findes allerede en anden fil på resultatets destinationssti.');
       if(d.browserOnly)fail('Vælg en destination først.');
@@ -129,17 +130,17 @@ export class WorkArchive extends Archive {
     if(j.phase==='installing') {
       // Recovery after publication must still finish removing a differently named
       // original. No deletion is attempted before the new file is durable.
-      const installed=await exists(f.target)&&await digest(f.target)===f.hash;
+      const installed=!await exists(f.temp)&&await exists(f.target)&&await digest(f.target)===f.hash;
       if(!installed) {
         await this.unchanged(f.temp,f.tempStamp,d.originalDir);
         if(d.browserUpload) {if(await exists(r.source))fail('Destinationen er oprettet siden upload.');}
-        else await this.checkOriginal(r,true);
+        else await this.checkOriginal(r,d.flowMode!=='fast');
         if(f.target===r.source)await fs.rename(f.temp,f.target);
         else {await fs.link(f.temp,f.target);await fs.unlink(f.temp);}
         await this.sync(d.originalDir);
       }
       await this.allowed(f.target,d.originalDir);
-      if(await digest(f.target)!==f.hash)fail('Den installerede fil bestod ikke kontrollen.');
+      await this.unchanged(f.target,f.tempStamp,d.originalDir);
       if(f.target!==r.source&&!d.browserUpload&&await exists(r.source)) {
         await this.checkOriginal(r);
         await fs.unlink(r.source);await this.sync(d.originalDir);

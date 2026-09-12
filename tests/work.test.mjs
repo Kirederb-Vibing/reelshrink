@@ -24,7 +24,8 @@ async function importFile(e,name='Film.2026.mp4') {
 }
 async function completed(e,r) {
   const bundle=await bundleFor(r.local_source),signature=await signatureFor(r.local_source,bundle);
-  const watch=e.store.watches()[0],id=e.store.enqueue(watch,r.local_source,path.relative(watch.path,r.local_source),signature,bundle,(await fs.stat(r.local_source)).size);
+  const size=(await fs.stat(r.local_source)).size;
+  const watch=e.store.watches()[0],id=e.store.get('SELECT id FROM jobs WHERE source=? AND signature=?',r.local_source,signature)?.id||e.store.enqueue(watch,r.local_source,path.relative(watch.path,r.local_source),signature,bundle,size);
   const output=path.join(e.c.outputRoot,path.basename(path.dirname(r.local_source)),'Film.mkv');await fs.mkdir(path.dirname(output),{recursive:true});await fs.writeFile(output,'encoded');
   e.store.updateJob(id,{state:'completed',output,output_sha256:await digest(output),output_bytes:7});return e.store.job(id);
 }

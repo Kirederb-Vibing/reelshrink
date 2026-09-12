@@ -9,6 +9,7 @@ import { Engine } from './engine.mjs';
 import { Returner } from './returner.mjs';
 import { Archive, prepareWork } from './archive.mjs';
 import { WorkArchive } from './work.mjs';
+import { FlowArchive } from './speedy.mjs';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { run } from './media.mjs';
@@ -25,7 +26,7 @@ async function body(req) {
   if(!data || typeof data!=='object' || Array.isArray(data)) fail('Forventede et JSON-objekt.');
   return data;
 }
-export async function createService(c,{background=true,archiveClass=WorkArchive}={}) {
+export async function createService(c,{background=true,archiveClass=FlowArchive}={}) {
   await prepareWork(c);
   const encoders=await run(c.ffmpeg,['-hide_banner','-encoders'],{timeout:10000});
   if(!encoders.out.includes('libx265')||!encoders.out.includes('libx264')) throw new Error('FFmpeg skal indeholde libx265 og libx264.');
@@ -79,6 +80,8 @@ export async function createService(c,{background=true,archiveClass=WorkArchive}
       if(unified&&p.startsWith('/api/returns'))fail('Tilbageførsel styres nu fra Work-siden.',410);
       if(unified&&p==='/api/archive/receive'&&method==='POST')return json(res,201,{id:await archive.receive(req,url.searchParams.get('name'),url.searchParams.get('destination')||'')});
       if(unified&&p==='/api/archive/cancel-downloads'&&method==='POST'){await body(req);await archive.cancelDownloads();return json(res,200,{ok:true});}
+      if(unified&&p==='/api/archive/flow'&&method==='PUT'){const d=await body(req);if(d.mode==='speedy_risky'&&d.confirmation!=='SPEEDY RISKY')fail('Bekræft med SPEEDY RISKY.');return json(res,200,archive.setOptions({mode:d.mode,buffer:d.buffer,autoSend:d.autoSend}));}
+      if(unified&&p==='/api/archive/approve-batch'&&method==='POST'){const d=await body(req);await archive.approveBatch(d.batchId,d.confirmation);return json(res,200,{ok:true});}
       if(unified&&p==='/api/archive/remove'&&method==='POST'){const d=await body(req);if(d.confirmation!=='SLET WORK')fail('Bekræft med SLET WORK.');await archive.remove(d.ids);return json(res,200,{ok:true});}
       if(unified&&p==='/api/archive/rescan-work'&&method==='POST'){await body(req);await archive.rescanWork();return json(res,200,{ok:true});}
       const workMatch=p.match(/^\/api\/archive\/([a-f0-9-]+)\/(rename|destination|file)$/);
@@ -124,7 +127,7 @@ export async function createService(c,{background=true,archiveClass=WorkArchive}
         const counts=Object.fromEntries(store.all('SELECT state,COUNT(*) AS count FROM jobs WHERE hidden=0 GROUP BY state').map(r=>[r.state,r.count]));
         const saved=store.get("SELECT COALESCE(SUM(saved_bytes),0) AS bytes FROM jobs WHERE state='completed' AND hidden=0").bytes;
         const disk=await fs.statfs(c.outputRoot);
-        return json(res,200,{paused:store.paused(),scanning:engine.scanning,counts,savedBytes:saved,outputFreeBytes:disk.bavail*disk.bsize,active:engine.active?store.job(engine.active.id):null});
+        return json(res,200,{paused:store.paused(),scanning:engine.scanning,counts,savedBytes:saved,outputFreeBytes:disk.bavail*disk.bsize,active:engine.active?{...store.job(engine.active.id),quickCheck:Boolean(archive.quickCheck?.(store.job(engine.active.id)?.source))}:null});
       }
       if(p==='/api/browse'&&method==='GET') {
         const requested=url.searchParams.get('path');
