@@ -6,6 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config, settings } from '../app/config.mjs';
 import { createService } from '../app/server.mjs';
+import { Archive } from '../app/archive.mjs';
 import { digest, fingerprint } from '../app/returner.mjs';
 import { run } from '../app/media.mjs';
 
@@ -14,7 +15,7 @@ async function setup(t) {
   const library=path.join(root,'nas');await fs.mkdir(library);
   const env={MEDIA_ROOTS:library,MEDIA_DRIVE_TYPES:'network',WORK_ROOT:path.join(root,'work'),CONFIG_DIR:path.join(root,'config'),MIN_FREE_GB:'0',ENCODE_THREADS:'1'};
   const c=config(env);c.stableSeconds=.001;
-  const service=await createService(c,{background:false});
+  const service=await createService(c,{background:false,archiveClass:Archive});
   t.after(async()=>{await service.close();await fs.rm(root,{recursive:true,force:true});});
   return {...service,root,library,c,env};
 }

@@ -8,6 +8,9 @@ import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
 import { Returner } from './returner.mjs';
 import { Archive, prepareWork } from './archive.mjs';
+import { WorkArchive } from './work.mjs';
+import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { run } from './media.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
@@ -22,7 +25,7 @@ async function body(req) {
   if(!data || typeof data!=='object' || Array.isArray(data)) fail('Forventede et JSON-objekt.');
   return data;
 }
-export async function createService(c,{background=true}={}) {
+export async function createService(c,{background=true,archiveClass=WorkArchive}={}) {
   await prepareWork(c);
   const encoders=await run(c.ffmpeg,['-hide_banner','-encoders'],{timeout:10000});
   if(!encoders.out.includes('libx265')||!encoders.out.includes('libx264')) throw new Error('FFmpeg skal indeholde libx265 og libx264.');
@@ -43,10 +46,12 @@ export async function createService(c,{background=true}={}) {
   const store=new Store(c.configDir),engine=new Engine(c,store);
   await engine.init();
   const returner=new Returner(c,store,engine);
-  const archive=new Archive(c,store,engine,returner);
+  const archive=new archiveClass(c,store,engine,returner);
   await archive.init();
   await returner.init();
-  if(background) {engine.start();returner.start();archive.start();}
+  const unified=c.workRoot&&archive instanceof WorkArchive;
+  if(unified)store.run("INSERT OR REPLACE INTO settings VALUES ('return_options',?)",JSON.stringify({automatic:false,from:'',to:''}));
+  if(background) {engine.start();if(!unified)returner.start();archive.start();}
   const json=(res,status,value)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   const server=http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
@@ -70,6 +75,23 @@ export async function createService(c,{background=true}={}) {
         }
       }
       const assets={'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      if(unified&&p==='/returns'){res.writeHead(302,{location:'/archive#work-list'});return res.end();}
+      if(unified&&p.startsWith('/api/returns'))fail('Tilbageførsel styres nu fra Work-siden.',410);
+      if(unified&&p==='/api/archive/receive'&&method==='POST')return json(res,201,{id:await archive.receive(req,url.searchParams.get('name'),url.searchParams.get('destination')||'')});
+      if(unified&&p==='/api/archive/cancel-downloads'&&method==='POST'){await body(req);await archive.cancelDownloads();return json(res,200,{ok:true});}
+      if(unified&&p==='/api/archive/remove'&&method==='POST'){const d=await body(req);if(d.confirmation!=='SLET WORK')fail('Bekræft med SLET WORK.');await archive.remove(d.ids);return json(res,200,{ok:true});}
+      if(unified&&p==='/api/archive/rescan-work'&&method==='POST'){await body(req);await archive.rescanWork();return json(res,200,{ok:true});}
+      const workMatch=p.match(/^\/api\/archive\/([a-f0-9-]+)\/(rename|destination|file)$/);
+      if(unified&&workMatch){
+        const [,id,action]=workMatch;
+        if(action==='file'&&method==='GET'){
+          const r=archive.row(id);if(!r||!['ready','sent'].includes(r.state)||!r.data.result)fail('Intet færdigt resultat.',404);
+          await archive.allowed(r.data.result,c.outputRoot);
+          res.writeHead(200,{'content-type':'application/octet-stream','content-length':(await fs.stat(r.data.result)).size,'content-disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(path.basename(r.data.result))});
+          await pipeline(createReadStream(r.data.result),res);return;
+        }
+        if(method==='POST'){const d=await body(req);if(action==='rename')await archive.rename(id,d.title);else if(action==='destination')await archive.setDestination(id,d.path);else fail('Ukendt handling.');return json(res,200,{ok:true});}
+      }
       if(assets[p]&&['GET','HEAD'].includes(method)) {
         const [file,type]=assets[p];const content=await fs.readFile(path.join(staticDir,file));
         res.writeHead(200,{'content-type':type+'; charset=utf-8'});return res.end(method==='HEAD'?undefined:content);
@@ -138,7 +160,7 @@ export async function createService(c,{background=true}={}) {
         try {
           store.run('UPDATE watches SET name=?,settings=?,enabled=? WHERE id=?',name,JSON.stringify(options),Number(enabled),id);
           if(data.settings && apply) {
-            const filters=Object.fromEntries(Object.keys(FILTER_DEFAULTS).map(k=>[k,options[k]]));
+            const filters=Object.fromEntries([...Object.keys(FILTER_DEFAULTS),'allowHDR','allowAtmosLoss'].map(k=>[k,options[k]]));
             for(const row of store.all("SELECT id,settings,input_bytes FROM jobs WHERE watch_id=? AND state='queued' AND hidden=0",id)) {
               const updated={...JSON.parse(row.settings),...filters},reason=filterReason(updated,row.input_bytes);
               store.updateJob(row.id,{settings:JSON.stringify(updated),...(reason?{state:'skipped',error:reason}:{})});
@@ -174,6 +196,7 @@ export async function createService(c,{background=true}={}) {
         return json(res,200,{items,total,limit,offset});
       }
       const jobMatch=p.match(/^\/api\/jobs\/([a-f0-9-]+)(?:\/(cancel|retry))?$/);
+      if(unified&&jobMatch&&method==='PUT'&&!jobMatch[2]){await archive.jobOverrides(jobMatch[1],await body(req));return json(res,200,{ok:true});}
       if(p==='/api/jobs/remove'&&method==='POST') {
         const data=await body(req);
         return json(res,200,{removed:store.removeJobs(data.ids)});
@@ -181,9 +204,9 @@ export async function createService(c,{background=true}={}) {
       if(jobMatch&&method==='DELETE'&&!jobMatch[2]) return json(res,200,{removed:store.removeJobs([jobMatch[1]])});
       if(jobMatch&&method==='GET'&&!jobMatch[2]) {const job=store.job(jobMatch[1]);if(!job)fail('Jobbet findes ikke.',404);return json(res,200,job);}
       if(jobMatch&&method==='POST') {
-        await body(req);
+        const data=await body(req);
         if(jobMatch[2]==='cancel') engine.cancel(jobMatch[1]);
-        else if(jobMatch[2]==='retry') await engine.retry(jobMatch[1]);else fail('Ukendt handling.',404);
+        else if(jobMatch[2]==='retry') await engine.retry(jobMatch[1],data.overrides||{});else fail('Ukendt handling.',404);
         return json(res,200,{ok:true});
       }
       if(p==='/api/scan'&&method==='POST') {await body(req);engine.scan();return json(res,202,{ok:true});}
@@ -194,7 +217,7 @@ export async function createService(c,{background=true}={}) {
       else res.end();
     }
   });
-  server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
+  server.requestTimeout=24*60*60*1000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
   server.maxHeadersCount=50;
   return {server,store,engine,returner,archive,close:async()=>{
     const closed=new Promise(resolve=>server.listening?server.close(resolve):resolve());

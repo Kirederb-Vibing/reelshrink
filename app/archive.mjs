@@ -273,6 +273,7 @@ export class Archive {
     await this.origin(r);
     for(const f of r.data.manifest) await this.unchanged(f.source,f.stamp,r.data.originalDir);
     this.update(r.id,'downloading',r.data);await this.sync(stage);
+    if(this.controller.signal.aborted)conflict('Hentning afbrudt.');
     await fs.rename(stage,finalDir);await this.sync(this.c.mediaRoots[0]);
     this.update(r.id,'local',{...r.data,phase:'Hentet – klar til lokal encoding',error:null,speed:0});this.engine.scan();
   }

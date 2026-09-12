@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { constants } from 'node:fs';
-import { inside, filterReason, processingPath } from './config.mjs';
-import { discover, bundleFor, signatureFor, assertBundleAllowed, probe, hdrReason, encodeArgs, prepareSubtitles, validateOutput, run } from './media.mjs';
+import { inside, filterReason, processingPath, settings } from './config.mjs';
+import { discover, bundleFor, signatureFor, assertBundleAllowed, probe, hdrReason, atmosReason, encodeArgs, prepareSubtitles, validateOutput, run } from './media.mjs';
 import { fingerprint, digest, sourceHeld } from './returner.mjs';
 
 export class Engine {
@@ -112,14 +112,14 @@ export class Engine {
       if(this.active?.id===id) this.active.controller.abort();
     } else throw new Error('Kun ventende eller aktive jobs kan annulleres.');
   }
-  async retry(id) {
+  async retry(id, overrides = {}) {
     const job=this.store.job(id);
     if(!job || !['failed','skipped','cancelled'].includes(job.state)) throw new Error('Dette job kan ikke genstartes.');
     processingPath(job.source,this.c);
     const watch=this.store.watch(job.watch_id);
     if(!watch?.enabled) throw new Error('Aktivér først overvågningsmappen.');
     if(await signatureFor(job.source,await bundleFor(job.source))!==job.signature) throw new Error('Kilden er ændret. Scan mappen for at oprette et nyt job.');
-    this.store.updateJob(id,{state:'queued',progress:0,error:null,log:null,speed:null,eta:null,settings:JSON.stringify(watch.settings)});
+    this.store.updateJob(id,{state:'queued',progress:0,error:null,log:null,speed:null,eta:null,settings:JSON.stringify(settings({...watch.settings,...overrides}))});
     this.tick();
   }
   async process(job,signal) {
@@ -134,7 +134,7 @@ export class Engine {
       const media=await probe(job.source,this.c,signal);
       const info={codec:media.video.codec_name,width:media.video.width,height:media.video.height,duration:media.duration,audio:media.streams.filter(s=>s.codec_type==='audio').length,subtitles:media.streams.filter(s=>s.codec_type==='subtitle').length+job.bundle.subtitles.length};
       this.store.updateJob(job.id,{info:JSON.stringify(info)});
-      const reason=filterReason(job.settings,job.input_bytes,media)||hdrReason(media);
+      const reason=filterReason(job.settings,job.input_bytes,media)||hdrReason(media,job.settings)||atmosReason(media,job.settings);
       if(reason) {this.store.updateJob(job.id,{state:'skipped',error:reason});return;}
       const disk=await fs.statfs(this.c.outputRoot);
       if(disk.bavail*disk.bsize < Math.max(this.c.minFreeBytes,job.input_bytes*1.1)) throw new Error('Der er for lidt ledig plads i outputmappen. Frigør plads, og prøv igen.');
@@ -176,7 +176,12 @@ export class Engine {
       }
       if(signal.aborted) throw new Error('Afbrudt');
       // A unique directory keeps later source revisions and late subtitles from replacing earlier output.
-      const finalDir=path.join(this.c.outputRoot,job.watch_id.slice(0,8),path.dirname(job.relative),sourceStem+'--'+job.id.slice(0,8));
+      let finalDir=path.join(this.c.outputRoot,job.watch_id.slice(0,8),path.dirname(job.relative),sourceStem+'--'+job.id.slice(0,8));
+      if(this.c.workRoot) {
+        const title=path.basename(path.dirname(job.source));
+        finalDir=path.join(this.c.outputRoot,title);
+        for(let n=2;await fs.stat(finalDir).then(()=>true,e=>{if(e.code==='ENOENT')return false;throw e;});n++)finalDir=path.join(this.c.outputRoot,title+` (${n})`);
+      }
       if(!inside(finalDir,this.c.outputRoot)) throw new Error('Ugyldig outputsti.');
       await fs.mkdir(path.dirname(finalDir),{recursive:true});
       if(!inside(await fs.realpath(path.dirname(finalDir)),this.c.outputRoot)) throw new Error('Outputstien peger uden for outputmappen.');
@@ -189,6 +194,7 @@ export class Engine {
       try {await fs.access(finalDir);throw new Error('Outputmappen findes allerede; den overskrives ikke.');} catch(e) {if(e.code!=='ENOENT')throw e;}
       await fs.rename(payload,finalDir);
       this.store.updateJob(job.id,{state:'completed',progress:100,speed:null,eta:null,error:null});
+      await this.work?.onCompleted(this.store.job(job.id));
     } catch(error) {
       const state=signal.aborted?(this.stopping?'queued':'cancelled'):'failed';
       this.store.updateJob(job.id,{state,error:signal.aborted?(this.stopping?'Fortsætter fra begyndelsen efter genstart.':'Annulleret af bruger.'):error.message,log:error.log||null,speed:null,eta:null});

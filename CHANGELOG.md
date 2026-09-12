@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 — 2026-09-12
+
+- Ét Work-workflow for lokale biblioteker og NAS: import, encoding, kontrol, automatisk sletning af Work-original og valgt tilbageførsel.
+- Ingen OLD-kø i Work; verificeret installation og genoptagelig journal erstatter det tidligere lokale returneringsskridt.
+- Browserupload med fremdrift/stop, destination eller download af resultat.
+- Stop hentekø, fjern valgte Work-emner, genfind stoppede filer og omdøb lokale mapper før encoding.
+- Læsbare emne- og resultatmapper med nummer ved navnesammenfald.
+- HDR/Dolby Vision-override samt tilladelse til tab af mulig Atmos, både i profil og pr. job.
+- Gamle overførselsjournaler bevares til gennemgang; eksisterende Work-Compose og .env kan genbruges.
+
+
 ## 0.5.0 — 2026-09-11
 
 - Rekursivt scan af alle konfigurerede biblioteksdrev direkte fra Arbejdsarkiv-fanen.
