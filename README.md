@@ -2,9 +2,9 @@
 
 En lille, selvhostet tjeneste til at komprimere film og serier med en dansk web-GUI, automatisk mappeovervågning og **valgbare undertekster**.
 
-ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede MKV-filer i en separat outputmappe. Valgfri tilbageflytning sætter resultatet tilbage i biblioteket og gemmer originalen som `.OLD` til manuel sletning. Video, lyd, scanning, database og GUI kører i én Docker-container.
+ReelShrink kopierer valgte videoer fra NAS, lokalt bibliotek eller browser til Work. Efter FFmpeg-encoding og fuld kontrol slettes Work-originalen automatisk. Du vælger selv hvilke færdige resultater der skal tilbage til den registrerede originalplacering. Det nye Work-workflow bruger ingen OLD-kø.
 
-**Version:** 0.5.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
+**Version:** 0.6.0 · **Webport:** 8080/TCP · **Runtime:** Node.js 24 + FFmpeg · **Database:** SQLite · **Licens:** MIT for applikationskoden.
 
 > Første udgivelse. [GitHub-repository](https://github.com/Kirederb-Vibing/reelshrink) · [Buildstatus](https://github.com/Kirederb-Vibing/reelshrink/actions/workflows/publish.yml). Image: `ghcr.io/kirederb-vibing/reelshrink:latest`. Imaget er tilgængeligt, når publiceringsworkflowet er grønt; kontroller pakkens adgang ved første installation.
 
@@ -27,21 +27,23 @@ ReelShrink læser dine originaler, encoder med FFmpeg og lægger kontrollerede M
 - Fuld dekodningskontrol af færdig video og lyd før publicering i outputmappen.
 - Image-opskrift og GHCR-workflow for `linux/amd64` og `linux/arm64`.
 
-## Lokalt arbejdsarkiv til NAS og lokale biblioteker (v0.5)
+## Work: ét workflow for lokale drev og NAS (v0.6)
 
-Fanen **Arbejdsarkiv** scanner alle konfigurerede biblioteksdrev rekursivt. Du kan bruge størrelse-, varighed-, opløsnings- og codecfiltre, søge i resultaterne og vælge op til 100 film/afsnit til en lokal arbejdsdisk. Hentning og afsendelse viser fremdrift i bytes og procent. Når arbejdsarkivet er aktiveret, bruger **encoding og lokal tilbageflytning kun lokale arbejdsmapper**. Intet sendes automatisk til NAS'en.
+1. Scan biblioteker, filtrér og vælg **Hent til Work Library**, eller upload en videofil fra browseren.
+2. Vælg encodingprofil under **Encoding → Indstillinger**. Der er én automatisk Work-overvågning.
+3. ReelShrink encoder og kontrollerer video, lyd og undertekster. Et accepteret resultat SHA-256-kontrolleres, hvorefter den store Work-original slettes.
+4. Under **Work** vælges resultater til **Send valgte tilbage**. Ingen automatisk afsendelse.
+5. Den nye destinationskopi kontrolleres før originalvideoen erstattes. Derefter kan Work-kopien fjernes.
 
-Hvert emne husker sit drev, originalmappe, præcise filstier og tilhørende filer. Normal tilbageførsel bruger medietest og OLD-godkendelse. Et eksplicit **Usikker tilbageførsel**-valg pr. fil kan springe medietest og OLD-kø over; det kræver stadig ReelShrinks præcise jobforbindelse, kopierer og checksumkontrollerer den nye fil og sletter kun den registrerede originalvideo. Andre filer i mappen bevares. Efter afsendelse kan du frigøre den lokale plads manuelt.
+Work giver uploadfremdrift, stop af hentekø, genfinding af filer, omdøbning af Work-mapper, valg af destination for browseruploads, download af resultater og fjernelse af enkelte/valgte Work-emner. Browseren deler ikke den oprindelige filsti: vælg en eksisterende destinationsmappe eller download resultatet.
 
-Brug **[compose.archive.yaml](compose.archive.yaml)** og **[archive.env.example](archive.env.example)**. Drevet erklæres som `network` eller `local` pr. mount i `.env`. Læs **[opsætning, opgradering, arbejdsgang og fejlhåndtering](docs/work-archive.md)**. Eksisterende opsætninger fortsætter i deres hidtidige tilstand, indtil `WORK_ROOT` sættes.
+Mapper får læsbare navne, fx `/work/library/Film.2026/` og `/work/encoded/Film.2026/`. Navnesammenfald får ` (2)`, ` (3)` osv. Originalstien gemmes separat i databasen.
 
-## Tilbageflytning & OLD-kø (v0.3)
+**HDR/Dolby Vision** kan tillades i profilen og pr. job. Farver og dynamiske metadata kan ændres; override er ikke tone mapping eller en garanti om HDR-bevarelse. **Atmos** bevares ved lydkopiering. Stereo-konvertering af TrueHD/E-AC-3 beskyttes konservativt som mulig Atmos og kræver et særskilt tilvalg. Interlaced video er fortsat beskyttet.
 
-ReelShrink kan nu overvåge sit output, føre færdige videoer tilbage til deres præcise originalmappe og gemme originalerne med `.OLD` til manuel gennemgang og sletning. Andre fra-/tilmapper kan sammenlignes efter filmtitel/år eller serie/sæson/episode. Tvetydige matches kræver dit valg.
+Brug [compose.archive.yaml](compose.archive.yaml) og [archive.env.example](archive.env.example). Eksisterende Work-installationer behøver ingen nye miljøvariabler. Bevar `WORK_ROOT=/work` og de samme mounts. Se [Work-vejledningen](docs/work-archive.md).
 
-Åbn **Tilbageflytning & OLD-kø** i GUI’en. Automatisk tilbageflytning er slået fra ved opgradering. Funktionen kræver skrivbare mediemounts; brug den nye **[compose.return.yaml](compose.return.yaml)** og **[return.env.example](return.env.example)** til Dockge/Pangolin med tre mediemapper og ingen hostporte. Bevar eksisterende database og containerstier.
-
-Læs **[opsætning, matchregler, sikker filhåndtering og gendannelse](docs/RETURNING.md)** før aktivering.
+Ældre installationer uden `WORK_ROOT` beholder kompatibilitet med det tidligere separate output-/returneringsforløb. Gammelt OLD-materiale slettes ikke ved opgradering. I Work-tilstand omdirigeres den gamle tilbageflytningsside til Work, og de gamle returneringshandlinger er deaktiveret.
 
 ## Hurtig installation med Docker Compose
 
@@ -123,7 +125,7 @@ Input og output må aldrig være identiske eller ligge inde i hinanden. Kildesym
 Output organiseres sådan:
 
 ```text
-/output/<mappe-id>/<relative-undermapper>/<filnavn>--<job-id>/<filnavn>.mkv
+/work/encoded/<beskrivende-titel>/<filnavn>.mkv
 ```
 
 Den korte ID-del adskiller revisioner og filer med samme navn. Den præcise destination fremgår af jobdetaljerne. Sidefiler bevarer deres navne og eventuelle `Subs`-/`Subtitles`-undermapper. `reelshrink.json` beskriver den anvendte profil og størrelser. Først efter afsluttet encoding og kontrol flyttes hele resultatmappen til den endelige placering; igangværende filer ligger under `/output/.reelshrink-tmp`.
@@ -165,7 +167,7 @@ CRF er kvalitetsstyring, ikke en målstørrelse. Tallene er ikke direkte sammenl
 **Denne version:**
 
 - CPU-encoding med libx265/libx264. Ingen NVENC, Quick Sync, VAAPI eller AV1-encoding.
-- HDR10/HLG/Dolby Vision og genkendt interlaced video springes over. Der foretages ikke automatisk tone mapping eller deinterlacing. Det vises i jobdetaljerne.
+- HDR10/HLG/Dolby Vision springes over som standard og kan tillades i profil/pr. job. Genkendt interlaced video springes fortsat over. Der foretages ikke automatisk tone mapping eller deinterlacing.
 - Ét encoding-job ad gangen. Pause af kø eller mappe lader et aktivt job afslutte; **Annullér** afbryder selve jobbet.
 - Opløsning bevares eller nedskaleres i højden. Sideforhold bevares ved nedskalering; almindelig SDR med mere end 8 bit forsøges bevaret som 10-bit 4:2:0.
 - Containeren spiller ikke videoer af og henter ikke undertekster eller metadata fra internettet.

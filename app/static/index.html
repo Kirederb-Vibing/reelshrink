@@ -10,7 +10,7 @@
   <a class="skip-link" href="#main">Gå til indhold</a>
   <header class="topbar"><a class="brand" href="/" aria-label="ReelShrink forside"><span class="brand-mark" aria-hidden="true">R<span>↘</span></span>ReelShrink<span class="version" id="version">0.1</span></a><span class="connection" id="connection" role="status">Forbinder…</span></header>
   <main id="main">
-    <nav class="section-nav" aria-label="Funktioner"><a href="/archive">Arbejdsarkiv</a><a href="/" aria-current="page">Encoding</a><a href="/returns">Tilbageflytning & OLD-kø</a></nav>
+    <nav class="section-nav" aria-label="Funktioner"><a href="/archive">Arbejdsarkiv</a><a href="/" aria-current="page">Encoding</a><a href="/archive">Work & tilbageførsel</a></nav>
     <div class="heading"><div><p class="eyebrow">FILM & SERIER</p><h1>Dit encoding-overblik</h1></div><div class="actions"><button id="pause" class="button secondary" disabled>Sæt kø på pause</button><button id="scan" class="button secondary">Scan nu</button><button class="button primary" data-action="add">+ Tilføj mappe</button></div></div>
     <div id="connection-error" class="alert" role="alert" hidden></div>
     <section class="stats" aria-label="Statistik"><article><span>Plads sparet i videofiler</span><strong id="saved">—</strong><small>Forskel mellem original og resultat</small></article><article><span>I kø</span><strong id="queued">—</strong><small>Venter på encoding</small></article><article><span>Færdige filer</span><strong id="completed">—</strong><small>Kontrolleret og gemt</small></article><article><span>Ledig outputplads</span><strong id="free">—</strong><small id="output-root">Outputmappe</small></article></section>
@@ -25,7 +25,7 @@
       </section>
     </div><aside>
       <section class="panel" aria-labelledby="watch-title"><div class="panel-heading"><h2 id="watch-title">Overvågede mapper</h2><button class="icon-button" data-action="add" aria-label="Tilføj mappe">+</button></div><div id="watch-list"><p class="loading">Henter mapper…</p></div></section>
-      <section class="panel note-panel"><span class="tag">ORIGINALER BEVARES</span><h2>Undertekster på dine vilkår</h2><p>SRT-filer lægges ind som valgbare spor i MKV-filen. Du vælger selv undertekster i din afspiller.</p><div class="rule"></div><p>Encoding gemmer resultatet separat. Under <a href="/returns">Tilbageflytning</a> kan du sætte det tilbage og gemme originalen som OLD til manuel sletning.</p></section>
+      <section class="panel note-panel"><span class="tag">ORIGINALER BEVARES</span><h2>Undertekster på dine vilkår</h2><p>SRT-filer lægges ind som valgbare spor i MKV-filen. Du vælger selv undertekster i din afspiller.</p><div class="rule"></div><p>Efter encoding og kontrol slettes Work-originalen automatisk. Vælg <a href="/archive">Work & tilbageførsel</a> for at sende resultatet tilbage. Originalen i biblioteket bevares indtil afsendelsen.</p></section>
       <div class="engine-info" id="engine-info">CPU-encoding · FFmpeg</div>
     </aside></div>
     <footer>ReelShrink <span>Lokalt på din server</span></footer>
@@ -46,14 +46,14 @@
       </div>
       <p class="hint">Spring disse eksisterende videoformater over:</p>
       <div class="codec-filters"><label class="check"><input id="skip-hevc" type="checkbox"><span>H.265 / HEVC</span></label><label class="check"><input id="skip-av1" type="checkbox"><span>AV1</span></label><label class="check"><input id="skip-h264" type="checkbox"><span>H.264</span></label></div>
-      <label class="check" id="apply-filters-label"><input id="apply-filters" type="checkbox" checked><span>Anvend filtrene på ventende jobs i denne mappe</span></label>
+      <label class="check" id="apply-filters-label"><input id="apply-filters" type="checkbox" checked><span>Anvend filtre og HDR/Atmos-valg på ventende jobs</span></label>
       <p class="hint">Størrelse kontrolleres straks. Varighed, højde og codec kontrolleres før encoding. Allerede oversprungne jobs kan genstartes med »Prøv igen«.</p>
     </fieldset>
-    <p class="hint">Undertekster bliver altid valgbare spor. Opløsning og synlig kvalitet er forskellige: prøv profilen på en enkelt film først. HDR/Dolby Vision og interlaced video springes over i denne version.</p><p id="settings-note" class="hint" hidden>Ændringer gælder nye jobs og jobs, du genstarter. Jobs, der allerede er i kø, beholder deres encoding-profil; filtrene kan opdateres med valget ovenfor. Aktive jobs ændres ikke.</p>
+    <label class="check"><input id="allow-hdr" type="checkbox"><span>Tillad HDR/Dolby Vision · farver og dynamiske metadata kan ændres</span></label><label class="check"><input id="allow-atmos" type="checkbox"><span>Tillad tab af Atmos ved konvertering til stereo</span></label><p class="hint">Undertekster bliver altid valgbare spor. Opløsning og synlig kvalitet er forskellige: prøv profilen på en enkelt film først. HDR kræver tilvalg. Interlaced video springes fortsat over.</p><p id="settings-note" class="hint" hidden>Ændringer gælder nye jobs og jobs, du genstarter. Jobs, der allerede er i kø, beholder deres encoding-profil; filtrene kan opdateres med valget ovenfor. Aktive jobs ændres ikke.</p>
     <p id="watch-error" class="form-error" role="alert" hidden></p><div class="dialog-footer"><button type="button" data-close="watch-dialog" class="button secondary">Luk</button><button id="watch-save" type="submit" class="button primary">Start overvågning</button></div>
   </form></dialog>
   <dialog id="job-dialog" aria-labelledby="job-dialog-title"><div class="dialog-heading"><h2 id="job-dialog-title">Jobdetaljer</h2><button class="icon-button" data-close="job-dialog" aria-label="Luk">×</button></div><div id="job-detail"></div><div class="dialog-footer"><button class="button secondary" data-close="job-dialog">Luk</button></div></dialog>
   <dialog id="confirm-dialog" aria-labelledby="confirm-title"><h2 id="confirm-title">Bekræft handling</h2><p id="confirm-text"></p><div class="dialog-footer"><button class="button secondary" data-close="confirm-dialog">Fortryd</button><button id="confirm-yes" class="button danger">Bekræft</button></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <noscript>Aktivér JavaScript for at bruge ReelShrink.</noscript>
-</body></html>
+<dialog id="override-dialog"><form id="override-form"><h2>Beskyttelse for denne fil</h2><input id="override-id" type="hidden"><label class="check"><input id="file-hdr" type="checkbox"><span>Tillad HDR/Dolby Vision. Farver og dynamiske metadata kan ændres; dette er ikke tone mapping til SDR.</span></label><label class="check"><input id="file-atmos" type="checkbox"><span>Tillad tab af Atmos ved stereo-konvertering. Ved lydkopiering bevares lydsporet.</span></label><div class="dialog-footer"><button type="button" class="button secondary" data-close="override-dialog">Annullér</button><button class="button primary" type="submit">Gem for denne fil</button></div></form></dialog></body></html>

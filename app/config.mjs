@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 export function config(env = process.env) {
   const integer = (key, fallback, min, max) => {
     const value = Number(env[key] ?? fallback);
@@ -62,13 +62,13 @@ export function mediaPath(candidate, c) {
   return real;
 }
 export const FILTER_DEFAULTS = Object.freeze({ minSizeGB: 0, maxSizeGB: 0, minDurationMinutes: 0, minSourceHeight: 0, skipCodecs: Object.freeze([]) });
-export const DEFAULT_SETTINGS = Object.freeze({ codec: 'hevc', quality: 'balanced', preset: 'medium', maxHeight: 0, audio: 'copy', onlySmaller: true, copySidecars: true, ...FILTER_DEFAULTS });
+export const DEFAULT_SETTINGS = Object.freeze({ codec: 'hevc', quality: 'balanced', preset: 'medium', maxHeight: 0, audio: 'copy', onlySmaller: true, copySidecars: true, allowHDR:false, allowAtmosLoss:false, ...FILTER_DEFAULTS });
 export function settings(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Ugyldige indstillinger.');
   const s = { ...DEFAULT_SETTINGS, ...input };
   const choices = { codec: ['hevc', 'h264'], quality: ['high', 'balanced', 'small'], preset: ['fast', 'medium', 'slow'], maxHeight: [0, 1080, 720], audio: ['copy', 'aac_stereo'] };
   for (const [k, values] of Object.entries(choices)) if (!values.includes(s[k])) throw new Error(`Ugyldig indstilling: ${k}`);
-  for (const k of ['onlySmaller', 'copySidecars']) if (typeof s[k] !== 'boolean') throw new Error(`Ugyldig indstilling: ${k}`);
+  for (const k of ['onlySmaller', 'copySidecars', 'allowHDR', 'allowAtmosLoss']) if (typeof s[k] !== 'boolean') throw new Error(`Ugyldig indstilling: ${k}`);
   for (const [k,max] of Object.entries({ minSizeGB: 100000, maxSizeGB: 100000, minDurationMinutes: 100000, minSourceHeight: 16384 })) {
     if (typeof s[k] !== 'number' || !Number.isFinite(s[k]) || s[k] < 0 || s[k] > max) throw new Error(`Ugyldigt filter: ${k}`);
   }

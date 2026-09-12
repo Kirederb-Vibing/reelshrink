@@ -102,11 +102,15 @@ export async function probe(file,c,signal) {
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('Kunne ikke bestemme filmens varighed.');
   return { ...data, video, duration };
 }
-export function hdrReason(media) {
+export function hdrReason(media, options = {}) {
   const v=media.video;
-  if (['smpte2084','arib-std-b67'].includes(v.color_transfer) || v.side_data_list?.some(d => /dovi|dolby|mastering display|content light|hdr/i.test(d.side_data_type))) return 'HDR/Dolby Vision springes over i v0.1 for at beskytte farver og dynamiske metadata.';
+  if (!options.allowHDR && (['smpte2084','arib-std-b67'].includes(v.color_transfer) || v.side_data_list?.some(d => /dovi|dolby|mastering display|content light|hdr/i.test(d.side_data_type)))) return 'HDR/Dolby Vision er beskyttet. Tillad HDR i profilen eller for denne fil for at fortsætte.';
   if (v.field_order && !['unknown','progressive'].includes(v.field_order)) return 'Interlaced video springes over i v0.1; den kræver en særskilt deinterlacing-profil.';
   return null;
+}
+export function atmosReason(media, options) {
+  const possibleAtmos=media.streams.some(s=>s.codec_type==='audio'&&(['truehd','eac3'].includes(s.codec_name)||/atmos|joc/i.test(JSON.stringify(s))));
+  return possibleAtmos&&options.audio!=='copy'&&!options.allowAtmosLoss?'Mulig Atmos-lyd er beskyttet. Vælg lydkopiering eller tillad tab af Atmos for denne fil/profil.':null;
 }
 export function encodeArgs(source, media, subtitles, output, options, c) {
   const crf = { hevc: {high:21,balanced:24,small:27}, h264: {high:18,balanced:21,small:24} }[options.codec][options.quality];
@@ -119,7 +123,8 @@ export function encodeArgs(source, media, subtitles, output, options, c) {
   args.push('-pix_fmt',is10?'yuv420p10le':'yuv420p','-filter_threads',String(c.threads));
   if(options.codec==='hevc') args.push('-x265-params',`pools=${c.threads}:frame-threads=1:log-level=error`);
   if (options.maxHeight && media.video.height > options.maxHeight) args.push('-vf',`scale=-2:${options.maxHeight}`);
-  // Transfer characteristics for SDR are retained explicitly; HDR never reaches this path.
+  // Preserve colour signalling. HDR override does not promise preservation of
+  // mastering metadata or dynamic Dolby Vision metadata and does not tone map.
   for (const [field,flag] of [['color_primaries','-color_primaries'],['color_transfer','-color_trc'],['color_space','-colorspace'],['color_range','-color_range']]) {
     if (media.video[field] && media.video[field] !== 'unknown') args.push(flag,media.video[field]);
   }

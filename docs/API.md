@@ -67,3 +67,21 @@ Fjernelse skjuler jobbet, stopper et ventende job og bevarer kilde-signaturen so
 En batch afvises uden ændringer, hvis et ID mangler (404), et job kører/annulleres (409), eller input er ugyldigt (400). Dubletter tælles kun én gang. Succes: `{"removed":2}`. Samme login-/CSRF-beskyttelse som andre skrivende endpoints.
 
 Ved `limit=all` returneres alle matchende, synlige jobs, og `offset` sættes til 0. Svarets `limit` er da strengen `all`; ellers er den et tal. Søge-/statusfiltre gælder også for Alle. Ugyldige sideparametre giver 400. Fjernelse er fortsat begrænset til 100 jobs pr. kald.
+
+## Work v0.6 (WORK_ROOT aktiveret)
+
+Work erstatter `/api/returns` (410 i Work-tilstand). POST `/api/archive/upload` tager `ids` og `confirmation: "SEND OG ERSTAT"`; kun `ready`-emner med destination accepteres. `unsafeIds` bruges ikke.
+
+| Metode | Endpoint | Indhold |
+| --- | --- | --- |
+| POST | `/api/archive/receive?name=Film.mp4&destination=/media/film` | Rå videobytes med Content-Length; destination er valgfri |
+| POST | `/api/archive/cancel-downloads` | `{}`; stop bibliotekshentninger |
+| POST | `/api/archive/remove` | `ids`, `confirmation: "SLET WORK"` |
+| POST | `/api/archive/rescan-work` | `{}`; genfind filer og nulstil stoppede jobs |
+| POST | `/api/archive/{id}/rename` | `title`; før encoding |
+| POST | `/api/archive/{id}/destination` | `path`; eksisterende mappe for browserfil |
+| GET | `/api/archive/{id}/file` | Download kontrolleret resultat |
+| PUT | `/api/jobs/{id}` | Boolean `allowHDR`, `allowAtmosLoss`; før encoding |
+| POST | `/api/jobs/{id}/retry` | Valgfrit `overrides` med profilfelter |
+
+Auth og X-ReelShrink/same-origin gælder også de nye mutationer. Download kræver auth. Work-status: queued_download → downloading → local → ready → queued_upload → uploading → sent. Browserfiler starter med receiving. Fejl bruger failed_download eller attention.
