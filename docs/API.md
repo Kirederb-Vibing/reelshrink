@@ -85,3 +85,11 @@ Work erstatter `/api/returns` (410 i Work-tilstand). POST `/api/archive/upload` 
 | POST | `/api/jobs/{id}/retry` | Valgfrit `overrides` med profilfelter |
 
 Auth og X-ReelShrink/same-origin gælder også de nye mutationer. Download kræver auth. Work-status: queued_download → downloading → local → ready → queued_upload → uploading → sent. Browserfiler starter med receiving. Fejl bruger failed_download eller attention.
+
+## Flow v0.7
+
+- `PUT /api/archive/flow`: `{mode:"thorough"|"fast"|"speedy_risky",buffer:1..5,autoSend:false}`. Aktivering af risky kræver også `confirmation:"SPEEDY RISKY"`. Aktiv batch låser ændringer.
+- `POST /api/archive/approve-batch`: `{batchId:"uuid",confirmation:"SLET WORK_OLD"}`. Afviser stale batch-id, aktive/ikke-afsendte emner og forkert bekræftelse. Godkendelsen åbner næste batch.
+- `GET /api/archive` inkluderer `flow`, `batch` (id, ids, limit, items, canApprove) samt per-emne `flowMode`, `timings`, `workOld` og `oldApproved`.
+- `POST /api/archive/{id}/retry` kan også afslutte lokal oprydning efter en allerede færdig encoding. `remove` afviser ubekræftede WORK_OLD-kopier.
+- Mutationer er fortsat auth/CSRF-beskyttede. Køpladser og batchgodkendelse gemmes i SQLite. Automatisk returnering er som standard slået fra.

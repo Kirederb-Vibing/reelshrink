@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 — 2026-09-12
+
+- Grundig/Hurtig kontrol; Hurtig dekoder lokale udsnit frem for hele filmen og reducerer gentagne indholdslæsninger.
+- Buffer på 1–5 importer og stabil FIFO-rækkefølge; færdige importer springer unødvendig stabilitetsventetid over.
+- Separate tider for import, encoding, kontrol og afsendelse; valgfri automatisk tilbageførsel kan overlappe encoding.
+- SPEEDY RISKY: ingen NAS-indholdsgenkontrol, lokal WORK_OLD og vedvarende batches på højst fem.
+- Næste risky-batch kræver eksplicit godkendelse af WORK_OLD-sletning. Almindelig oprydning kan ikke omgå denne lås.
+- Flow gemmes i databasen; ingen nye Compose/.env-krav.
+
+
 ## 0.6.0 — 2026-09-12
 
 - Ét Work-workflow for lokale biblioteker og NAS: import, encoding, kontrol, automatisk sletning af Work-original og valgt tilbageførsel.

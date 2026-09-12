@@ -65,10 +65,11 @@ export class Engine {
             const bundle=await bundleFor(source), signature=await signatureFor(source,bundle);
             const stat=await fs.stat(source);
             const previous=this.seen.get(key);
-            if(!previous || previous.signature!==signature) {
+            const trusted=this.work?.trustedImport?.(source,signature);
+            if(!trusted&&(!previous || previous.signature!==signature)) {
               this.seen.set(key,{signature,since:Date.now()}); waiting++; continue;
             }
-            if(!stat.size || Date.now()-previous.since < this.c.stableSeconds*1000) {waiting++;continue;}
+            if(!stat.size || (!trusted&&Date.now()-previous.since < this.c.stableSeconds*1000)) {waiting++;continue;}
             if(this.store.get('SELECT id FROM jobs WHERE watch_id=? AND source=? AND signature=?',watch.id,source,signature)) continue;
             // Superseded queued inputs must not run with an obsolete subtitle set.
             this.store.run("UPDATE jobs SET state='cancelled',error='Kilden blev ændret; en ny version sættes i kø.',updated=? WHERE watch_id=? AND source=? AND state='queued'",Date.now(),watch.id,source);
@@ -145,6 +146,7 @@ export class Engine {
       const encoded=path.join(payload,sourceStem+'.mkv');
       const subtitles=await prepareSubtitles(job.bundle.subtitles,normalized);
       let time=0,speed=0,lastUpdate=0;
+      const encodeStarted=Date.now();
       const result=await run(this.c.ffmpeg,encodeArgs(job.source,media,subtitles,encoded,job.settings,this.c),{
         signal,onProgress:(key,value)=>{
           if(key==='out_time_us') time=Math.max(0,Number(value)/1e6)||0;
@@ -155,11 +157,15 @@ export class Engine {
           }
         }
       });
+      this.work?.recordTiming?.(job.source,'encodingMs',Date.now()-encodeStarted);
+      const checkStarted=Date.now();
       const outputMedia=await probe(encoded,this.c,signal);
       validateOutput(media,outputMedia,subtitles.length,job.settings);
       // Decode the entire finished video and audio. Container metadata alone cannot prove integrity.
       this.store.updateJob(job.id,{progress:99,speed:null,eta:null});
-      await run(this.c.ffmpeg,['-hide_banner','-nostdin','-v','error','-xerror','-threads',String(this.c.threads),'-protocol_whitelist','file,pipe','-i',encoded,'-map','0:v:0','-map','0:a?','-f','null','-'],{signal});
+      const quick=this.work?.quickCheck?.(job.source);
+      const windows=quick&&media.duration>30?[0,Math.max(0,media.duration/2-5),Math.max(0,media.duration-10)]:[null];
+      for(const start of windows)await run(this.c.ffmpeg,['-hide_banner','-nostdin','-v','error','-xerror','-threads',String(this.c.threads),'-protocol_whitelist','file,pipe',...(start===null?[]:['-ss',String(start)]),'-i',encoded,...(start===null?[]:['-t','10']),'-map','0:v:0','-map','0:a?','-f','null','-'],{signal});
       if(await signatureFor(job.source,await bundleFor(job.source))!==job.signature) throw new Error('Kilden blev ændret under encodingen. Resultatet er kasseret.');
       const size=(await fs.stat(encoded)).size;
       if(job.settings.onlySmaller && size>=job.input_bytes) {
@@ -194,7 +200,8 @@ export class Engine {
       try {await fs.access(finalDir);throw new Error('Outputmappen findes allerede; den overskrives ikke.');} catch(e) {if(e.code!=='ENOENT')throw e;}
       await fs.rename(payload,finalDir);
       this.store.updateJob(job.id,{state:'completed',progress:100,speed:null,eta:null,error:null});
-      await this.work?.onCompleted(this.store.job(job.id));
+      this.work?.recordTiming?.(job.source,'checkMs',Date.now()-checkStarted);
+      await this.work?.onCompleted({...this.store.job(job.id),verifiedStamp:await fingerprint(output)});
     } catch(error) {
       const state=signal.aborted?(this.stopping?'queued':'cancelled'):'failed';
       this.store.updateJob(job.id,{state,error:signal.aborted?(this.stopping?'Fortsætter fra begyndelsen efter genstart.':'Annulleret af bruger.'):error.message,log:error.log||null,speed:null,eta:null});

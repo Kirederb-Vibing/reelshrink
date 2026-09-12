@@ -267,7 +267,7 @@ export class Archive {
       f.hash=await this.copy(f.source,dest,r,'downloading');
       await this.unchanged(f.source,f.stamp,r.data.originalDir);
       r.data.phase='Kontrollerer lokal kopi';this.update(r.id,'downloading',r.data);
-      if(await digest(dest)!==f.hash) conflict('Checksumfejl ved hentning.');
+      if(!r.data.quickImport&&await digest(dest)!==f.hash) conflict('Checksumfejl ved hentning.');
       r.data.phase='Henter fra bibliotek';
     }
     await this.origin(r);
