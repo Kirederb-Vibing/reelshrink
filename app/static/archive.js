@@ -12,7 +12,7 @@ function scanSettings(){return{minSizeGB:Number($('min-size').value),maxSizeGB:N
 function workItems(){const q=$('work-search').value.toLowerCase(),filter=$('work-filter').value;return status.items.filter(r=>(filter==='all'||filter==='ready'&&r.state==='ready'||filter==='pending'&&(!['sent','cleaned'].includes(r.state)||(r.data.workOld&&!r.data.oldApproved)))&&(r.source+' '+r.local_source).toLowerCase().includes(q));}
 function syncButtons(){
   $('download-count').textContent=downloads.size+' valgt (maks. 100)';$('upload-count').textContent=uploads.size+' valgt'+(unsafeUploads.size?' · '+unsafeUploads.size+' usikre':'');
-  $('download').disabled=busy||!downloads.size||library.scanning;$('upload').disabled=busy||!status.items.some(r=>uploads.has(r.id)&&r.canSend);$('remove-work').disabled=busy||!uploads.size;
+  $('download').disabled=busy||!downloads.size||library.scanning;$('upload').disabled=busy||!status.items.some(r=>uploads.has(r.id)&&r.canSend);$('remove-work').disabled=busy||!uploads.size;$('force-work').disabled=busy||!uploads.size;
   const possible=library.items.filter(r=>r.state==='eligible'&&!r.imported);$('select-library').checked=possible.length>0&&possible.every(r=>downloads.has(r.path));$('select-library').indeterminate=possible.some(r=>downloads.has(r.path))&&!$('select-library').checked;
   const work=workItems();$('select-work').checked=work.length>0&&work.every(r=>uploads.has(r.id));$('select-work').indeterminate=work.some(r=>uploads.has(r.id))&&!$('select-work').checked;
 }
@@ -84,4 +84,11 @@ $('approve-batch').onclick=()=>action(async()=>{
  const batchId=status.batch?.id;
  if(prompt('Efter din egen kontrol af resultaterne: skriv SLET WORK_OLD for at slette batchens lokale originaler og åbne næste batch.')!=='SLET WORK_OLD')return;
  await api('/api/archive/approve-batch','POST',{batchId,confirmation:'SLET WORK_OLD'});await refresh();
+});
+
+$('force-work').onclick=()=>action(async()=>{
+ const ids=[...uploads];
+ if(prompt(`Force Slet ${ids.length} valgte emner? Lokale Work-filer, resultater, WORK_OLD og al tilknyttet jobhistorik slettes permanent. Valgte aktive jobs stoppes. NAS/originalplacering berøres ikke. Skriv FORCE SLET:`)!=='FORCE SLET')return;
+ const result=await api('/api/archive/force-remove','POST',{ids,confirmation:'FORCE SLET'});uploads.clear();await refresh();
+ if(result.skippedPaths.length)alert('Historikken er fjernet. Disse stier blev ikke slettet, fordi de ligger uden for sikker lokal Work-oprydning:\n'+result.skippedPaths.join('\n'));
 });

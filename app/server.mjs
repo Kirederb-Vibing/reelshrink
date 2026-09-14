@@ -1,3 +1,4 @@
+import {forceRemove} from './force-remove.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -75,6 +76,8 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
           if(origin.host!==req.headers.host)fail('Forespørgsler fra andre websites er ikke tilladt.',403);
         }
       }
+      if(archive.forceRemoving&&!['GET','HEAD'].includes(method))fail('Force Slet er i gang. Vent til oprydningen er færdig.',409);
+      if(unified&&['/api/archive/force-remove','/api/jobs/force-remove'].includes(p)&&method==='POST'){const d=await body(req);return json(res,200,await forceRemove(archive,p.includes('/jobs/')?'jobs':'archive',d.ids,d.confirmation));}
       const assets={'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(unified&&p==='/returns'){res.writeHead(302,{location:'/archive#work-list'});return res.end();}
       if(unified&&p.startsWith('/api/returns'))fail('Tilbageførsel styres nu fra Work-siden.',410);

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 — 2026-09-14
+
+- Force Slet med multivalg på Work/import og Encoding; fjerner lokale filer, resultater, WORK_OLD, skjulte jobs og tilknyttet tilbageførselshistorik.
+- Håndterer manglende/ændrede originalstier uden adgang til NAS; valgte aktive arbejdere stoppes før oprydning.
+- NAS-filer berøres aldrig. Stier uden for nuværende Work springes over og rapporteres.
+- Risky-batchen husker ikke slettede emner, men næste batch kræver stadig særskilt godkendelse.
+- Idé om cost-benefit-prioritering gemt i docs/BACKLOG.md. Ingen Compose/.env-ændringer.
+
 ## 0.7.0 — 2026-09-12
 
 - Grundig/Hurtig kontrol; Hurtig dekoder lokale udsnit frem for hele filmen og reducerer gentagne indholdslæsninger.

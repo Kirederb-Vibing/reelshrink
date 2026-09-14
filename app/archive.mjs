@@ -92,6 +92,7 @@ export class Archive {
     return {filters:this.scanFilters(),scanning:this.libraryScanning,scanError:this.libraryScanError,lastScan:this.libraryLastScan,progress:this.libraryProgress,counts,items,total,limit,offset};
   }
   scanLibrary() {
+    if(this.forceRemoving)return false;
     this.enabled();
     if(this.libraryScanning) return false;
     this.libraryScanning=true;this.libraryScanError=null;this.libraryProgress={drive:null,found:0,checked:0,eligible:0};

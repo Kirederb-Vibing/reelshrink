@@ -304,3 +304,9 @@ Se [docs/API.md](docs/API.md), [docs/TESTING.md](docs/TESTING.md), [CONTRIBUTING
 - [GitHub: publicering af Docker-images til Container Registry](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
 - [Node.js 24: SQLite](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)
 - [Tredjepartslicenser](THIRD_PARTY_NOTICES.md)
+
+### Fastlåste emner efter strømsvigt
+
+Brug **Force Slet valgte** i Work/import eller Encoding for at fjerne lokale filer og hele den tilknyttede historik, også skjulte jobs. Bekræft med `FORCE SLET`. NAS-originaler berøres ikke, og filerne kan importeres igen. Se [Work-guiden](docs/work-archive.md) for detaljer.
+
+[Idéer til senere](docs/BACKLOG.md) omfatter forventet pladsbesparelse og cost-benefit-prioritering.

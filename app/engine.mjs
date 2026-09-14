@@ -44,7 +44,7 @@ export class Engine {
     while(this.scanning) await new Promise(r=>setTimeout(r,20));
   }
   async scan() {
-    if(this.stopping) return;
+    if(this.stopping||this.maintenance) return;
     if(this.scanning) {this.scanAgain=true; return;}
     this.scanning=true;
     const live=new Set();
@@ -93,7 +93,7 @@ export class Engine {
     }
   }
   tick() {
-    if(this.stopping || this.active || this.store.paused()) return;
+    if(this.stopping || this.maintenance || this.active || this.store.paused()) return;
     const row=this.store.all("SELECT j.id,j.source FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 ORDER BY j.created,j.id").find(j=>!sourceHeld(this.store,j.source));
     if(!row) return;
     const controller=new AbortController();
