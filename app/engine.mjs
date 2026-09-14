@@ -44,7 +44,7 @@ export class Engine {
     while(this.scanning) await new Promise(r=>setTimeout(r,20));
   }
   async scan() {
-    if(this.stopping||this.maintenance) return;
+    if(this.stopping||this.maintenance||this.store.globallyPaused()) return;
     if(this.scanning) {this.scanAgain=true; return;}
     this.scanning=true;
     const live=new Set();
@@ -57,7 +57,7 @@ export class Engine {
           if(real!==watch.path || inside(real,this.c.outputRoot) || inside(this.c.outputRoot,real)) throw new Error('Overvågningsmappen er flyttet eller overlapper output.');
           const videos=await discover(watch.path,this.scanController.signal);
           for(const source of videos) {
-            if(this.stopping) break;
+            if(this.stopping||this.store.globallyPaused()) break;
             if(sourceHeld(this.store,source)) continue;
             const returned=this.store.get('SELECT stamp FROM returned_files WHERE path=?',source);
             if(returned && returned.stamp===await fingerprint(source)) continue;
@@ -75,7 +75,7 @@ export class Engine {
             this.store.run("UPDATE jobs SET state='cancelled',error='Kilden blev ændret; en ny version sættes i kø.',updated=? WHERE watch_id=? AND source=? AND state='queued'",Date.now(),watch.id,source);
             // The watch may have been edited or removed during asynchronous discovery.
             const current=this.store.watch(watch.id);
-            if(!current?.enabled) break;
+            if(!current?.enabled||this.store.globallyPaused()) break;
             if(sourceHeld(this.store,source)) continue;
             const id=this.store.enqueue(current,source,path.relative(watch.path,source),signature,bundle,stat.size);
             const reason=filterReason(current.settings,stat.size);
@@ -93,7 +93,7 @@ export class Engine {
     }
   }
   tick() {
-    if(this.stopping || this.maintenance || this.active || this.store.paused()) return;
+    if(this.stopping || this.maintenance || this.store.globallyPaused() || this.active || this.store.paused()) return;
     const row=this.store.all("SELECT j.id,j.source FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 ORDER BY j.created,j.id").find(j=>!sourceHeld(this.store,j.source));
     if(!row) return;
     const controller=new AbortController();

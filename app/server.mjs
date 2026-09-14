@@ -1,3 +1,4 @@
+import {RunControl} from './control.mjs';
 import {forceRemove} from './force-remove.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -53,6 +54,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
   await returner.init();
   const unified=c.workRoot&&archive instanceof WorkArchive;
   if(unified)store.run("INSERT OR REPLACE INTO settings VALUES ('return_options',?)",JSON.stringify({automatic:false,from:'',to:''}));
+  const control=new RunControl(store,engine,archive,returner);control.init();
   if(background) {engine.start();if(!unified)returner.start();archive.start();}
   const json=(res,status,value)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   const server=http.createServer(async(req,res)=>{
@@ -76,9 +78,17 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
           if(origin.host!==req.headers.host)fail('Forespørgsler fra andre websites er ikke tilladt.',403);
         }
       }
+      if(p==='/api/control'&&method==='GET')return json(res,200,control.status());
+      if(p==='/api/control/stop'&&method==='POST'){await body(req);return json(res,202,control.stop());}
+      if(p==='/api/control/resume'&&method==='POST'){await body(req);return json(res,202,control.resume());}
+      if(store.globallyPaused()&&!['GET','HEAD'].includes(method)){
+        const cleanup=['/api/archive/force-remove','/api/jobs/force-remove','/api/archive/remove','/api/jobs/remove'].includes(p)||method==='DELETE'&&/^\/api\/jobs\/[a-f0-9-]+$/.test(p);
+        if(!cleanup)fail('Samlet stop er aktivt. Brug Genoptag alt før nye opgaver.',409);
+        if(!control.status().canResume)fail('Vent til Stop alt sikkert er færdig før oprydning.',409);
+      }
       if(archive.forceRemoving&&!['GET','HEAD'].includes(method))fail('Force Slet er i gang. Vent til oprydningen er færdig.',409);
       if(unified&&['/api/archive/force-remove','/api/jobs/force-remove'].includes(p)&&method==='POST'){const d=await body(req);return json(res,200,await forceRemove(archive,p.includes('/jobs/')?'jobs':'archive',d.ids,d.confirmation));}
-      const assets={'/force-remove.js':['force-remove.js','text/javascript'],'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      const assets={'/control.js':['control.js','text/javascript'],'/force-remove.js':['force-remove.js','text/javascript'],'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(unified&&p==='/returns'){res.writeHead(302,{location:'/archive#work-list'});return res.end();}
       if(unified&&p.startsWith('/api/returns'))fail('Tilbageførsel styres nu fra Work-siden.',410);
       if(unified&&p==='/api/archive/receive'&&method==='POST')return json(res,201,{id:await archive.receive(req,url.searchParams.get('name'),url.searchParams.get('destination')||'')});
@@ -130,7 +140,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
         const counts=Object.fromEntries(store.all('SELECT state,COUNT(*) AS count FROM jobs WHERE hidden=0 GROUP BY state').map(r=>[r.state,r.count]));
         const saved=store.get("SELECT COALESCE(SUM(saved_bytes),0) AS bytes FROM jobs WHERE state='completed' AND hidden=0").bytes;
         const disk=await fs.statfs(c.outputRoot);
-        return json(res,200,{paused:store.paused(),scanning:engine.scanning,counts,savedBytes:saved,outputFreeBytes:disk.bavail*disk.bsize,active:engine.active?{...store.job(engine.active.id),quickCheck:Boolean(archive.quickCheck?.(store.job(engine.active.id)?.source))}:null});
+        return json(res,200,{paused:store.paused(),globalPaused:store.globallyPaused(),scanning:engine.scanning,counts,savedBytes:saved,outputFreeBytes:disk.bavail*disk.bsize,active:engine.active?{...store.job(engine.active.id),quickCheck:Boolean(archive.quickCheck?.(store.job(engine.active.id)?.source))}:null});
       }
       if(p==='/api/browse'&&method==='GET') {
         const requested=url.searchParams.get('path');
@@ -226,9 +236,10 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
   });
   server.requestTimeout=24*60*60*1000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
   server.maxHeadersCount=50;
-  return {server,store,engine,returner,archive,close:async()=>{
+  return {server,store,engine,returner,archive,control,close:async()=>{
+    control.closing=true;
     const closed=new Promise(resolve=>server.listening?server.close(resolve):resolve());
-    server.closeIdleConnections();await archive.stop();await returner.stop();await engine.stop();await closed;store.close();
+    server.closeIdleConnections();await archive.stop();await returner.stop();await engine.stop();await control.task;await closed;store.close();
   }};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {

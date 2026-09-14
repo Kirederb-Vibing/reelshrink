@@ -310,3 +310,9 @@ Se [docs/API.md](docs/API.md), [docs/TESTING.md](docs/TESTING.md), [CONTRIBUTING
 Brug **Force Slet valgte** i Work/import eller Encoding for at fjerne lokale filer og hele den tilknyttede historik, også skjulte jobs. Bekræft med `FORCE SLET`. NAS-originaler berøres ikke, og filerne kan importeres igen. Se [Work-guiden](docs/work-archive.md) for detaljer.
 
 [Idéer til senere](docs/BACKLOG.md) omfatter forventet pladsbesparelse og cost-benefit-prioritering.
+
+### Stop før oprydning eller planlagt strømafbrydelse
+
+Brug **Stop alt sikkert** øverst på Encoding eller Work/import. Nye opgaver blokeres, encoding afbrydes og lægges tilbage i køen, mens aktuelle filoverførsler afsluttes sikkert. Vent på **Klar til nedlukning af ReelShrink** før Force Slet eller normal nedlukning af container/server.
+
+**Genoptag alt** starter arbejdet igen. Afbrudt encoding starter fra begyndelsen. Et samlet stop bevares efter genstart; en separat manuel encodingpause og SPEEDY RISKY-batchgodkendelsen bevares også. Se [Work-guiden](docs/work-archive.md).

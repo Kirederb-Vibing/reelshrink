@@ -89,3 +89,19 @@ Efter oprydning kan samme NAS-fil vælges og hentes igen fra scanningslisten. Sc
 I SPEEDY RISKY slettes valgte WORK_OLD også med denne udtrykkelige bekræftelse. De øvrige batch-emner bevares; næste batch starter først efter batchgodkendelse, også hvis hele batchen blev Force Slettet.
 
 Force Slet venter ikke på NAS-biblioteksscanning. Hvis en anden aktiv encoding eller overførsel blokerer, vises det i dialogen; afslut den eller medtag det aktive emne i dit valg. Ved timeout kan oprydningen stadig køre: genindlæs og kontrollér emnerne før genforsøg.
+
+## Stop alt sikkert og planlagt nedlukning
+
+Panelet **Samlet processtyring** findes øverst på Work/import og Encoding.
+
+1. Tryk **Stop alt sikkert**, og bekræft. Nye importer, encodings, scans og tilbageførsler blokeres straks.
+2. Aktiv encoding afbrydes kontrolleret. Originalen bevares, og jobbet lægges tilbage i køen. Det starter fra begyndelsen ved genoptagelse; FFmpeg kan ikke fortsætte fra den afbrudte procent.
+3. Aktuelle filoverførsler, herunder browserupload, får lov at afslutte. Scanning afbrydes. **Stopper sikkert…** viser, hvad der mangler. En langsom eller utilgængelig NAS kan derfor forlænge ventetiden.
+4. Vent på **Klar til nedlukning af ReelShrink**. Nu kan du bruge **Force Slet** på de fastlåste emner eller lukke containeren/serveren ned normalt.
+5. Tryk **Genoptag alt**, når arbejdet skal fortsætte. Et samlet stop bevares også efter genstart; servicen starter ikke automatisk arbejdet igen.
+
+Indikatoren gælder ReelShrinks egne arbejdere, ikke andre tjenester på serveren. Afbryd ikke strømmen, mens den stadig viser arbejde. Status bekræfter, at processerne er standset; allerede eksisterende fejl eller en reel overførselsfejl kræver stadig gennemgang. En afbrudt browserupload skal vælges igen fra browseren.
+
+**Sæt kø på pause** på Encoding er fortsat en separat indstilling. Hvis du selv havde sat den på pause før samlet stop, bevares den indstilling efter **Genoptag alt**; brug derefter **Genoptag kø**. SPEEDY RISKYs batchgodkendelse gælder fortsat.
+
+Ved almindelig servernedlukning efter den grønne status kan du bruge `sudo shutdown -h now`. Ingen ændring af Compose eller .env er nødvendig.

@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 
-ARG VERSION=0.7.2
+ARG VERSION=0.8.0
 ARG REVISION=unknown
 ARG SOURCE_URL
 LABEL org.opencontainers.image.title="ReelShrink" \
