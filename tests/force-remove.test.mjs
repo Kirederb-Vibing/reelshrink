@@ -85,3 +85,11 @@ test('force removing the whole risky batch does not refill it; restart does not 
  const reopened=await createService(e.c,{background:false});
  try{assert.equal(reopened.archive.row(r.id),null);assert.equal(reopened.store.job(j),null);assert.equal(reopened.archive.batch().id,batch.id);reopened.archive.tick();assert.equal(reopened.archive.row(next).state,'queued_download');}finally{await reopened.close();}
 });
+test('local force removal does not wait for or cancel an unrelated NAS library scan',async t=>{
+ const e=await setup(t),{j}=await item(e,'Film');e.archive.libraryScanning=true;
+ const controller=e.archive.libraryScanController;
+ try{
+  await forceRemove(e.archive,'jobs',[j],'FORCE SLET');
+  assert.equal(controller.signal.aborted,false);assert.equal(e.archive.libraryScanning,true);assert.equal(e.store.job(j),null);
+ }finally{e.archive.libraryScanning=false;}
+});

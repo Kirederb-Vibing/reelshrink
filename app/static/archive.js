@@ -86,9 +86,6 @@ $('approve-batch').onclick=()=>action(async()=>{
  await api('/api/archive/approve-batch','POST',{batchId,confirmation:'SLET WORK_OLD'});await refresh();
 });
 
-$('force-work').onclick=()=>action(async()=>{
- const ids=[...uploads];
- if(prompt(`Force Slet ${ids.length} valgte emner? Lokale Work-filer, resultater, WORK_OLD og al tilknyttet jobhistorik slettes permanent. Valgte aktive jobs stoppes. NAS/originalplacering berøres ikke. Skriv FORCE SLET:`)!=='FORCE SLET')return;
- const result=await api('/api/archive/force-remove','POST',{ids,confirmation:'FORCE SLET'});uploads.clear();await refresh();
- if(result.skippedPaths.length)alert('Historikken er fjernet. Disse stier blev ikke slettet, fordi de ligger uden for sikker lokal Work-oprydning:\n'+result.skippedPaths.join('\n'));
+$('force-work').onclick=()=>window.forceRemoveDialog('/api/archive/force-remove',[...uploads],async()=>{
+ uploads.clear();await refresh();
 });
