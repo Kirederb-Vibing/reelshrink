@@ -9,7 +9,7 @@ function duration(n){if(!Number.isFinite(n))return 'Beregner…';if(n<60)return 
 const rendered=new Map();
 function html(id,content){const el=$(id);if(rendered.get(id)===content||el.contains(document.activeElement))return;el.innerHTML=content;rendered.set(id,content);}
 function badge(state){return `<span class="badge ${esc(state)}">${esc(stateNames[state]||state)}</span>`;}
-async function api(route,method='GET',data){const response=await fetch('/api'+route,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(20000)});const value=await response.json();if(!response.ok)throw new Error(value.error||'Forespørgslen mislykkedes.');return value;}
+async function api(route,method='GET',data){const response=await fetch('/api'+route,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(route.endsWith('/force-remove')?180000:20000)});const value=await response.json();if(!response.ok)throw new Error(value.error||'Forespørgslen mislykkedes.');return value;}
 const selectedJobs=new Set();
 let visibleJobs=[];
 const removable=j=>!['running','cancel_requested'].includes(j.state);
@@ -29,12 +29,11 @@ function renderWatches(){
   html('watch-list',watches.length?watches.map(w=>`<article class="watch-item"><div class="watch-top"><strong>${esc(w.name)}</strong><span class="badge ${w.enabled?'completed':''}">${w.enabled?'Aktiv':'Sat på pause'}</span></div><code>${esc(w.path)}</code><p class="watch-meta">${codecName(w.settings.codec)} · ${esc(qualityNames[w.settings.quality])} · ${w.settings.maxHeight?w.settings.maxHeight+'p':'Original opløsning'}<br>${w.waiting?`${w.waiting} fil(er) afventer stabilitet`:w.last_scan?'Senest scannet '+new Date(w.last_scan).toLocaleTimeString('da-DK',{hour:'2-digit',minute:'2-digit'}):'Afventer første scanning'}</p><div class="watch-actions"><button class="button small secondary" data-action="edit-watch" data-id="${esc(w.id)}">Indstillinger</button><button class="text-button" data-action="toggle-watch" data-id="${esc(w.id)}">${w.enabled?'Sæt på pause':'Aktivér'}</button><button class="text-button" data-action="delete-watch" data-id="${esc(w.id)}">Fjern</button></div>${w.scan_error?`<p class="watch-error">${esc(w.scan_error)}</p>`:''}</article>`).join(''):'<div class="empty"><h2>Ingen mapper endnu</h2><p>Tilføj en mappe for at begynde.</p></div>');
 }
 function syncSelection(){
-  const eligible=visibleJobs.filter(removable);
-  for(const j of visibleJobs)if(!removable(j))selectedJobs.delete(j.id);
+  const eligible=visibleJobs;
   for(const input of document.querySelectorAll('[data-job-selection]')){
     const job=visibleJobs.find(j=>j.id===input.dataset.jobSelection);
     input.checked=selectedJobs.has(input.dataset.jobSelection);
-    input.disabled=!job||!removable(job);
+    input.disabled=!job;
     input.closest('tr').classList.toggle('selected',input.checked);
   }
   const count=eligible.filter(j=>selectedJobs.has(j.id)).length;
@@ -42,12 +41,13 @@ function syncSelection(){
   $('select-page').indeterminate=count>0&&count<eligible.length;
   $('select-page').disabled=!eligible.length;
   $('selection-count').textContent=`${selectedJobs.size} valgt (maks. 100)`;
-  $('remove-selected').disabled=!selectedJobs.size;
+  $('remove-selected').disabled=!selectedJobs.size||visibleJobs.some(j=>selectedJobs.has(j.id)&&!removable(j));
+  $('force-selected').disabled=!system?.workRoot||!selectedJobs.size;
   $('clear-selection').disabled=!selectedJobs.size;
 }
 function renderJobs(data){
   visibleJobs=data.items;total=data.total;$('job-count').textContent=total+' filer';
-  html('job-list',data.items.length?`<table class="job-table"><thead><tr><th>Fil</th><th>Profil</th><th>Status</th><th>Størrelse / handling</th></tr></thead><tbody>${data.items.map(j=>`<tr class="${selectedJobs.has(j.id)?'selected':''}"><td><div class="job-file"><input type="checkbox" class="job-checkbox" data-job-selection="${esc(j.id)}" aria-label="Vælg ${esc(base(j.source))}" ${selectedJobs.has(j.id)?'checked':''} ${removable(j)?'':'disabled'}><div><button class="file-button" data-action="detail" data-id="${esc(j.id)}">${esc(base(j.source))}</button><small>${esc(j.watch_name)}</small></div></div></td><td>${codecName(j.settings.codec)}<small>${esc(qualityNames[j.settings.quality])}</small></td><td>${badge(j.state)}${j.state==='running'?`<small>${Math.floor(j.progress)}%</small>`:''}${j.state==='skipped'&&j.error?`<small class="skip-reason">${esc(j.error)}</small>`:''}</td><td>${j.state==='completed'?bytes(j.output_bytes):bytes(j.input_bytes)}${j.state==='completed'?`<small class="savings">${j.output_bytes<j.input_bytes?'−':'+'}${Math.abs(Math.round(100*(1-j.output_bytes/j.input_bytes)))}% · ${bytes(j.input_bytes)} før</small>`:''}<button class="text-button remove-job" data-action="remove-job" data-id="${esc(j.id)}" ${removable(j)?'':'disabled title="Annullér jobbet, og vent til det er stoppet"'} aria-label="Fjern ${esc(base(j.source))} fra listen">Fjern</button></td></tr>`).join('')}</tbody></table>`:`<div class="empty"><h2>${$('search').value||$('filter').value!=='all'?'Ingen match':'Køen er tom'}</h2><p>${$('search').value||$('filter').value!=='all'?'Prøv et andet søgeord eller en anden status.':'Dine film og episoder vises her, når de er fundet og klar til encoding.'}</p></div>`);
+  html('job-list',data.items.length?`<table class="job-table"><thead><tr><th>Fil</th><th>Profil</th><th>Status</th><th>Størrelse / handling</th></tr></thead><tbody>${data.items.map(j=>`<tr class="${selectedJobs.has(j.id)?'selected':''}"><td><div class="job-file"><input type="checkbox" class="job-checkbox" data-job-selection="${esc(j.id)}" aria-label="Vælg ${esc(base(j.source))}" ${selectedJobs.has(j.id)?'checked':''} ><div><button class="file-button" data-action="detail" data-id="${esc(j.id)}">${esc(base(j.source))}</button><small>${esc(j.watch_name)}</small></div></div></td><td>${codecName(j.settings.codec)}<small>${esc(qualityNames[j.settings.quality])}</small></td><td>${badge(j.state)}${j.state==='running'?`<small>${Math.floor(j.progress)}%</small>`:''}${j.state==='skipped'&&j.error?`<small class="skip-reason">${esc(j.error)}</small>`:''}</td><td>${j.state==='completed'?bytes(j.output_bytes):bytes(j.input_bytes)}${j.state==='completed'?`<small class="savings">${j.output_bytes<j.input_bytes?'−':'+'}${Math.abs(Math.round(100*(1-j.output_bytes/j.input_bytes)))}% · ${bytes(j.input_bytes)} før</small>`:''}<button class="text-button remove-job" data-action="remove-job" data-id="${esc(j.id)}" ${removable(j)?'':'disabled title="Annullér jobbet, og vent til det er stoppet"'} aria-label="Fjern ${esc(base(j.source))} fra listen">Fjern</button></td></tr>`).join('')}</tbody></table>`:`<div class="empty"><h2>${$('search').value||$('filter').value!=='all'?'Ingen match':'Køen er tom'}</h2><p>${$('search').value||$('filter').value!=='all'?'Prøv et andet søgeord eller en anden status.':'Dine film og episoder vises her, når de er fundet og klar til encoding.'}</p></div>`);
   syncSelection();
   const all=data.limit==='all',size=all?total:data.limit;
   $('pagination').hidden=all||total<=size;$('previous').disabled=offset===0;$('next').disabled=all||offset+size>=total;$('page-info').textContent=total?`${offset+1}–${Math.min(offset+size,total)} af ${total}`:'0 filer';
@@ -145,7 +145,7 @@ document.addEventListener('change',event=>{
   syncSelection();
 });
 $('select-page').onchange=()=>{
-  const eligible=visibleJobs.filter(removable),checked=$('select-page').checked;
+  const eligible=visibleJobs,checked=$('select-page').checked;
   if(checked&&new Set([...selectedJobs,...eligible.map(j=>j.id)]).size>100){toast('Du kan vælge op til 100 jobs ad gangen.');syncSelection();return;}
   for(const j of eligible)if(checked)selectedJobs.add(j.id);else selectedJobs.delete(j.id);
   syncSelection();
@@ -154,3 +154,9 @@ $('clear-selection').onclick=()=>{selectedJobs.clear();syncSelection();};
 $('remove-selected').onclick=async()=>{try{await removeJobs([...selectedJobs]);}catch(e){toast(e.message);await refresh();}};
 
 $('override-form').onsubmit=async e=>{e.preventDefault();try{await api('/jobs/'+$('override-id').value,'PUT',{allowHDR:$('file-hdr').checked,allowAtmosLoss:$('file-atmos').checked});$('override-dialog').close();toast('Filens override er gemt.');await refresh();}catch(e){toast(e.message);}};
+
+$('force-selected').onclick=async()=>{
+ const ids=[...selectedJobs];
+ if(prompt(`Force Slet ${ids.length} valgte emner? Alle tilknyttede lokale Work-filer, resultater, WORK_OLD og jobhistorik slettes permanent. Valgte aktive jobs stoppes. NAS/originalplacering berøres ikke. Skriv FORCE SLET:`)!=='FORCE SLET')return;
+ try{const result=await api('/jobs/force-remove','POST',{ids,confirmation:'FORCE SLET'});selectedJobs.clear();if(detailId){$('job-dialog').close();detailId=null;}await refresh();if(result.skippedPaths.length)alert('Historikken er fjernet. Disse stier blev ikke slettet, fordi de ligger uden for sikker lokal Work-oprydning:\n'+result.skippedPaths.join('\n'));else toast('Force Slet færdig. Emnerne kan importeres igen.');}catch(e){toast(e.message);await refresh();}
+};

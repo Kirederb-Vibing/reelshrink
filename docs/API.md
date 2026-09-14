@@ -93,3 +93,9 @@ Auth og X-ReelShrink/same-origin gælder også de nye mutationer. Download kræv
 - `GET /api/archive` inkluderer `flow`, `batch` (id, ids, limit, items, canApprove) samt per-emne `flowMode`, `timings`, `workOld` og `oldApproved`.
 - `POST /api/archive/{id}/retry` kan også afslutte lokal oprydning efter en allerede færdig encoding. `remove` afviser ubekræftede WORK_OLD-kopier.
 - Mutationer er fortsat auth/CSRF-beskyttede. Køpladser og batchgodkendelse gemmes i SQLite. Automatisk returnering er som standard slået fra.
+
+### Force Slet (Work aktiveret)
+
+`POST /api/archive/force-remove` og `POST /api/jobs/force-remove` tager `{"ids":["uuid"],"confirmation":"FORCE SLET"}`. Maks. 100 forskellige emner. Kræver normal autentificering og `X-ReelShrink: 1`. Job-endpointet fjerner alle versioner af samme kilde og dens Work-post.
+
+Svar: `{"removed":1,"skippedPaths":[]}`. `skippedPaths` viser stier, som ikke kunne omfattes af sikker lokal oprydning. Der skrives aldrig på originaldrevet. Fejlende lokale sletninger beholder databaseposterne til genforsøg.

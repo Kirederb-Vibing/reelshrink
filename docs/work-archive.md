@@ -75,3 +75,15 @@ I risky-tilstand er browserupload og manuel genfinding slået fra; vælg videoer
 I Grundig/Hurtig frigiver afsendelse en plads i bufferen; indtil da tæller en hentet/encodet fil stadig med. Afsendte resultatkopier kan fortsat optage plads på Work. MIN_FREE_GB kontrolleres stadig; ingen film bliver slettet for at overholde buffergrænsen ved en opgradering. Manuelt eksisterende filer er ikke automatisk omfattet af importgrænsen.
 
 Hentning og afsendelse kan arbejde samtidig med encoding, men der er én biblioteksoverførsel ad gangen. Afsluttede importer markeres klar via deres lokale signatur og springer stabilitetsventetiden over. Hvis filen ændres, bruges den normale ventetid. Work-listen viser separat hentetid, encodingtid, kontroltid og afsendelsestid.
+
+## Force Slet efter fejl eller strømsvigt
+
+Markér op til 100 emner i Work-listen på importsiden eller i Encoding-listen, tryk **Force Slet valgte**, og skriv `FORCE SLET`. Brug **Alle inkl. afsendte** i Work, hvis emnet er i historikken.
+
+Dette er permanent lokal oprydning: tilknyttede Work-kopier, resultater, WORK_OLD, midlertidige filer, alle jobversioner (også skjulte) og tilbageførselsjournaler fjernes. Der kontrolleres ikke, om NAS-originalen stadig findes eller har samme identitet. Valgte aktive jobs/overførsler stoppes og afventes først; øvrigt aktivt arbejde skal afsluttes før handlingen.
+
+Originalplaceringen og NAS-filer bliver ikke slettet. Eventuelle midlertidige NAS-filer fra en afbrudt tilbageførsel bevares også. Gamle stier uden for den aktuelt konfigurerede Work-mappe og usikre stier springes over og vises i svaret. Hvis en lokal fil ikke kan slettes på grund af rettigheder, bevares databaseposterne, så oprydningen kan genprøves.
+
+Efter oprydning kan samme NAS-fil vælges og hentes igen fra scanningslisten. Scan igen, hvis originalplaceringen er ændret. Film slettet med almindelig **Fjern** fra Encoding kan findes i Work-listen og Force Slettes derfra.
+
+I SPEEDY RISKY slettes valgte WORK_OLD også med denne udtrykkelige bekræftelse. De øvrige batch-emner bevares; næste batch starter først efter batchgodkendelse, også hvis hele batchen blev Force Slettet.
