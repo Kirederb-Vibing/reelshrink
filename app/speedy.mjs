@@ -36,7 +36,7 @@ export class FlowArchive extends WorkArchive {
     return ids;
   }
   tick() {
-    if(!this.c.workRoot||this.editing||this.active||this.stopping)return;
+    if(!this.c.workRoot||this.editing||this.active||this.stopping||this.store.globallyPaused())return;
     const o=this.options();let rows=this.list().sort((a,b)=>(a.data.queueOrder||a.updated*1000)-(b.data.queueOrder||b.updated*1000)),batch=this.batch();
     // Returning a selected item has priority over prefetching another source.
     let r=rows.find(r=>r.state==='queued_upload');

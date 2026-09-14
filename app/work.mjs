@@ -25,6 +25,7 @@ export class WorkArchive extends Archive {
     for(const method of ['enqueueDownload','remove','rename','receive','rescanWork','setDestination']) {
       const operation=this[method].bind(this);
       this[method]=async(...values)=>{
+        if(this.store.globallyPaused()&&method!=='remove')fail('Samlet stop er aktivt. Brug Genoptag alt før nye opgaver.');
         if(this.editing)fail('En anden Work-handling er i gang.');
         this.editing=true;
         try{return await operation(...values);}finally{this.editing=false;this.tick();}
@@ -38,6 +39,7 @@ export class WorkArchive extends Archive {
     this.engine.work=this;
     this.store.archiveHeld=file=>Boolean(this.editing)||!this.list().some(r=>r.local_source===file&&r.state==='local');
     this.store.run("UPDATE archive_items SET state='failed_download' WHERE state='receiving'");
+    if(this.store.globallyPaused())return;
     for(const r of this.list()) {
       if(r.state==='local'&&!this.store.get('SELECT id FROM returns WHERE original=?',r.local_source)) {
         try {await this.finish(r);} catch(e){this.update(r.id,'local',{...r.data,error:e.message});}

@@ -56,6 +56,7 @@ export class Store {
   all(sql, ...p) { return this.db.prepare(sql).all(...p); }
   get(sql, ...p) { return this.db.prepare(sql).get(...p); }
   run(sql, ...p) { return this.db.prepare(sql).run(...p); }
+  globallyPaused() {return JSON.parse(this.get("SELECT value FROM settings WHERE key='run_control'")?.value||'{"paused":false}').paused===true;}
   paused() { return this.get("SELECT value FROM settings WHERE key='paused'").value === 'true'; }
   setPaused(value) { this.run("UPDATE settings SET value=? WHERE key='paused'", String(value)); }
   watches() { return this.all('SELECT * FROM watches ORDER BY created').map(w => ({ ...w, settings: settings(JSON.parse(w.settings)), enabled: Boolean(w.enabled) })); }

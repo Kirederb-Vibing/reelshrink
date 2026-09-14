@@ -123,7 +123,7 @@ export class Returner {
     this.store.run(`UPDATE returns SET ${Object.keys(fields).map(k => `${k}=?`).join(',')} WHERE id=?`, ...Object.values(fields), id);
   }
   async scan() {
-    if (this.stopping || this.scanning || this.active) return;
+    if (this.stopping || this.store.globallyPaused() || this.scanning || this.active) return;
     this.scanning = true; this.scanError = null;
     try {
       const opts = this.options(), scans = [{ from: this.c.outputRoot, to: null }];
@@ -222,7 +222,7 @@ export class Returner {
     this.scan();
   }
   tick() {
-    if (this.stopping || this.active || this.scanning) return;
+    if (this.stopping || this.store.globallyPaused() || this.active || this.scanning) return;
     const next = this.store.get("SELECT id FROM returns WHERE state='queued' ORDER BY updated,id LIMIT 1");
     if (!next) return;
     this.active = next.id;

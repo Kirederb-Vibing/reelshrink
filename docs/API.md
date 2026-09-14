@@ -99,3 +99,12 @@ Auth og X-ReelShrink/same-origin gælder også de nye mutationer. Download kræv
 `POST /api/archive/force-remove` og `POST /api/jobs/force-remove` tager `{"ids":["uuid"],"confirmation":"FORCE SLET"}`. Maks. 100 forskellige emner. Kræver normal autentificering og `X-ReelShrink: 1`. Job-endpointet fjerner alle versioner af samme kilde og dens Work-post.
 
 Svar: `{"removed":1,"skippedPaths":[]}`. `skippedPaths` viser stier, som ikke kunne omfattes af sikker lokal oprydning. Der skrives aldrig på originaldrevet. Fejlende lokale sletninger beholder databaseposterne til genforsøg.
+
+### Samlet processtyring
+
+- `GET /api/control`: `phase` (running/stopping/resuming/working/stopped/error), `paused`, `encodingPaused`, `activities`, `readyToShutdown`, `canResume` og eventuel `error`.
+- `POST /api/control/stop`, JSON `{}`: 202; starter et vedvarende samlet stop. Poll status til `readyToShutdown: true`.
+- `POST /api/control/resume`, JSON `{}`: 202; genoptager efter lokal recovery. Poll status. Encodingkøens særskilte pause bevares.
+- Begge POST-ruter kræver normal auth, samme origin og `X-ReelShrink: 1`.
+- Under samlet stop afvises nye proceshandlinger med 409. Force Slet/jobfjernelse/Work-fjernelse tillades, når arbejdere og scanning er stoppet.
+- Stoppet afslutter aktuelle overførsler; det er ikke en kill-switch eller en kommando til at slukke værtsmaskinen.

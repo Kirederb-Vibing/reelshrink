@@ -92,7 +92,7 @@ export class Archive {
     return {filters:this.scanFilters(),scanning:this.libraryScanning,scanError:this.libraryScanError,lastScan:this.libraryLastScan,progress:this.libraryProgress,counts,items,total,limit,offset};
   }
   scanLibrary() {
-    if(this.forceRemoving)return false;
+    if(this.forceRemoving||this.store.globallyPaused())return false;
     this.enabled();
     if(this.libraryScanning) return false;
     this.libraryScanning=true;this.libraryScanError=null;this.libraryProgress={drive:null,found:0,checked:0,eligible:0};
@@ -225,7 +225,7 @@ export class Archive {
   start() { if(this.c.workRoot){this.timer=setInterval(()=>this.tick(),1000);this.tick();} }
   async stop() { this.stopping=true;clearInterval(this.timer);this.controller.abort();this.libraryScanController.abort();await Promise.allSettled([this.workerPromise,this.libraryScanPromise]); }
   tick() {
-    if(!this.c.workRoot||this.active||this.stopping) return;
+    if(!this.c.workRoot||this.active||this.stopping||this.store.globallyPaused()) return;
     const r=this.list().reverse().find(r=>['queued_download','queued_upload'].includes(r.state));if(!r)return;
     this.active=r.id;
     this.workerPromise=(r.state==='queued_download'?this.download(r):this.upload(r)).catch(e=>{

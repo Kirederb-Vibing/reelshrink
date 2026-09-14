@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — 2026-09-14
+
+- Stop alt sikkert / Genoptag alt på Encoding, Work/import og den tidligere tilbageflytningsside.
+- Nye processer blokeres straks; encoding afbrydes og lægges tilbage i køen. Aktuelle filoverførsler afsluttes med deres normale kontrol og sikre installation.
+- Stoptilstanden bevares gennem container-/servergenstart. Status viser, hvad der stadig arbejder, og hvornår ReelShrink er klar til nedlukning.
+- Force Slet og lokal oprydning er tilgængelig efter samlet stop; afbrudt encoding starter fra begyndelsen ved genoptagelse.
+- En særskilt manuel pause af encodingkøen bevares. Ingen Compose- eller .env-ændringer.
+
 ## 0.7.2 — 2026-09-14
 
 - Force Slet bruger et fælles dialogvindue med synlig ventestatus, vedvarende fejl og bekræftet resultat på både Work og Encoding.

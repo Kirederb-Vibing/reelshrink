@@ -75,7 +75,7 @@ async function refresh(){
     if(!values[2].total||pageSize==='all')offset=0;
     [status,watches,,system]=values;
     $('connection-error').hidden=true;$('connection').textContent=status.scanning?'Scanner mapper…':status.paused?'Kø på pause':'Forbundet';$('connection').className='connection ok';
-    $('version').textContent=system.version;$('pause').disabled=false;$('pause').textContent=status.paused?'Genoptag kø':'Sæt kø på pause';
+    $('version').textContent=system.version;$('pause').disabled=Boolean(status.globalPaused);$('pause').textContent=status.globalPaused?'Samlet stop aktivt':status.paused?'Genoptag kø':'Sæt kø på pause';
     $('saved').textContent=bytes(status.savedBytes);$('queued').textContent=status.counts.queued||0;$('completed').textContent=status.counts.completed||0;$('free').textContent=bytes(status.outputFreeBytes);$('output-root').textContent=system.outputRoot;
     $('engine-info').textContent=`${system.workRoot?'Kun lokalt arbejdsarkiv · ':''}CPU-encoding · ${system.threads} tråde · MKV\nScan hvert ${system.scanInterval}. sekund`;
     renderActive();renderWatches();renderJobs(values[2]);
