@@ -78,7 +78,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
       }
       if(archive.forceRemoving&&!['GET','HEAD'].includes(method))fail('Force Slet er i gang. Vent til oprydningen er færdig.',409);
       if(unified&&['/api/archive/force-remove','/api/jobs/force-remove'].includes(p)&&method==='POST'){const d=await body(req);return json(res,200,await forceRemove(archive,p.includes('/jobs/')?'jobs':'archive',d.ids,d.confirmation));}
-      const assets={'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      const assets={'/force-remove.js':['force-remove.js','text/javascript'],'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(unified&&p==='/returns'){res.writeHead(302,{location:'/archive#work-list'});return res.end();}
       if(unified&&p.startsWith('/api/returns'))fail('Tilbageførsel styres nu fra Work-siden.',410);
       if(unified&&p==='/api/archive/receive'&&method==='POST')return json(res,201,{id:await archive.receive(req,url.searchParams.get('name'),url.searchParams.get('destination')||'')});
@@ -100,7 +100,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
       }
       if(assets[p]&&['GET','HEAD'].includes(method)) {
         const [file,type]=assets[p];const content=await fs.readFile(path.join(staticDir,file));
-        res.writeHead(200,{'content-type':type+'; charset=utf-8'});return res.end(method==='HEAD'?undefined:content);
+        res.writeHead(200,{'content-type':type+'; charset=utf-8','cache-control':'no-store'});return res.end(method==='HEAD'?undefined:content);
       }
       if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,workRoot:c.workRoot,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
       if(p==='/api/archive'&&method==='GET') return json(res,200,archive.status());
@@ -219,6 +219,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
       if(p==='/api/queue'&&method==='POST') {const data=await body(req);if(typeof data.paused!=='boolean')fail('Angiv paused som true eller false.');store.setPaused(data.paused);if(!data.paused)engine.tick();return json(res,200,{paused:store.paused()});}
       fail('Siden findes ikke.',404);
     } catch(error) {
+      if(['/api/archive/force-remove','/api/jobs/force-remove'].includes(req.url?.split('?')[0]))console.error('Force Slet:',error.message);
       if(!res.headersSent) json(res,error.status||(error.code==='ENOENT'?404:400),{error:error.message});
       else res.end();
     }

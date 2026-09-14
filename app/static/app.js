@@ -155,8 +155,6 @@ $('remove-selected').onclick=async()=>{try{await removeJobs([...selectedJobs]);}
 
 $('override-form').onsubmit=async e=>{e.preventDefault();try{await api('/jobs/'+$('override-id').value,'PUT',{allowHDR:$('file-hdr').checked,allowAtmosLoss:$('file-atmos').checked});$('override-dialog').close();toast('Filens override er gemt.');await refresh();}catch(e){toast(e.message);}};
 
-$('force-selected').onclick=async()=>{
- const ids=[...selectedJobs];
- if(prompt(`Force Slet ${ids.length} valgte emner? Alle tilknyttede lokale Work-filer, resultater, WORK_OLD og jobhistorik slettes permanent. Valgte aktive jobs stoppes. NAS/originalplacering berøres ikke. Skriv FORCE SLET:`)!=='FORCE SLET')return;
- try{const result=await api('/jobs/force-remove','POST',{ids,confirmation:'FORCE SLET'});selectedJobs.clear();if(detailId){$('job-dialog').close();detailId=null;}await refresh();if(result.skippedPaths.length)alert('Historikken er fjernet. Disse stier blev ikke slettet, fordi de ligger uden for sikker lokal Work-oprydning:\n'+result.skippedPaths.join('\n'));else toast('Force Slet færdig. Emnerne kan importeres igen.');}catch(e){toast(e.message);await refresh();}
-};
+$('force-selected').onclick=()=>window.forceRemoveDialog('/api/jobs/force-remove',[...selectedJobs],async()=>{
+ selectedJobs.clear();if(detailId){$('job-dialog').close();detailId=null;}await refresh();
+});

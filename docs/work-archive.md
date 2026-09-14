@@ -78,7 +78,7 @@ Hentning og afsendelse kan arbejde samtidig med encoding, men der er én bibliot
 
 ## Force Slet efter fejl eller strømsvigt
 
-Markér op til 100 emner i Work-listen på importsiden eller i Encoding-listen, tryk **Force Slet valgte**, og skriv `FORCE SLET`. Brug **Alle inkl. afsendte** i Work, hvis emnet er i historikken.
+Markér op til 100 emner i Work-listen på importsiden eller i Encoding-listen, tryk **Force Slet valgte**, skriv `FORCE SLET` i dialogen, og tryk **Force Slet**. Dialogen bliver åben og viser enten det bekræftede resultat eller den konkrete fejl. Brug **Alle inkl. afsendte** i Work, hvis emnet er i historikken.
 
 Dette er permanent lokal oprydning: tilknyttede Work-kopier, resultater, WORK_OLD, midlertidige filer, alle jobversioner (også skjulte) og tilbageførselsjournaler fjernes. Der kontrolleres ikke, om NAS-originalen stadig findes eller har samme identitet. Valgte aktive jobs/overførsler stoppes og afventes først; øvrigt aktivt arbejde skal afsluttes før handlingen.
 
@@ -87,3 +87,5 @@ Originalplaceringen og NAS-filer bliver ikke slettet. Eventuelle midlertidige NA
 Efter oprydning kan samme NAS-fil vælges og hentes igen fra scanningslisten. Scan igen, hvis originalplaceringen er ændret. Film slettet med almindelig **Fjern** fra Encoding kan findes i Work-listen og Force Slettes derfra.
 
 I SPEEDY RISKY slettes valgte WORK_OLD også med denne udtrykkelige bekræftelse. De øvrige batch-emner bevares; næste batch starter først efter batchgodkendelse, også hvis hele batchen blev Force Slettet.
+
+Force Slet venter ikke på NAS-biblioteksscanning. Hvis en anden aktiv encoding eller overførsel blokerer, vises det i dialogen; afslut den eller medtag det aktive emne i dit valg. Ved timeout kan oprydningen stadig køre: genindlæs og kontrollér emnerne før genforsøg.

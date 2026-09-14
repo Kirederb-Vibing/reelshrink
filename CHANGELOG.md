@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.2 — 2026-09-14
+
+- Force Slet bruger et fælles dialogvindue med synlig ventestatus, vedvarende fejl og bekræftet resultat på både Work og Encoding.
+- Bekræftelsen accepterer store/små bogstaver og ekstra mellemrum; forkert tekst giver en synlig besked.
+- Lokal oprydning venter ikke længere på en uafhængig NAS-biblioteksscanning.
+- Timeout og ugyldige proxy-svar vises tydeligt. HTML/JS leveres uden cache, så opdateret brugerflade hentes.
+
 ## 0.7.1 — 2026-09-14
 
 - Force Slet med multivalg på Work/import og Encoding; fjerner lokale filer, resultater, WORK_OLD, skjulte jobs og tilknyttet tilbageførselshistorik.

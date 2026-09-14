@@ -24,8 +24,8 @@ export async function forceRemove(archive, kind, ids, confirmation) {
   try {
     if(archive.active){archive.controller.abort();await archive.workerPromise?.catch(()=>{});archive.controller=new AbortController();}
     if(engine.active){engine.active.controller.abort();await engine.workerPromise?.catch(()=>{});}
-    engine.scanController.abort();archive.libraryScanController.abort();
-    while(engine.scanning||archive.libraryScanning)await new Promise(r=>setTimeout(r,20));
+    engine.scanController.abort();
+    while(engine.scanning)await new Promise(r=>setTimeout(r,20));
     // A worker may have published output immediately before it stopped.
     const freshJobs=store.all('SELECT * FROM jobs').filter(j=>sources.has(j.source));
     const freshRows=chosen.map(r=>archive.row(r.id));
@@ -75,7 +75,7 @@ export async function forceRemove(archive, kind, ids, confirmation) {
     engine.seen.clear();returner.seen.clear();
     return {removed:selected.size,skippedPaths:[...new Set(skipped)]};
   }finally{
-    engine.scanController=new AbortController();archive.libraryScanController=new AbortController();
+    engine.scanController=new AbortController();
     engine.maintenance=false;archive.editing=false;archive.forceRemoving=false;
     archive.tick();engine.tick();
   }
