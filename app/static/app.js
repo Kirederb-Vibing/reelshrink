@@ -9,7 +9,7 @@ function duration(n){if(!Number.isFinite(n))return 'Beregner…';if(n<60)return 
 const rendered=new Map();
 function html(id,content){const el=$(id);if(rendered.get(id)===content||el.contains(document.activeElement))return;el.innerHTML=content;rendered.set(id,content);}
 function badge(state){return `<span class="badge ${esc(state)}">${esc(stateNames[state]||state)}</span>`;}
-async function api(route,method='GET',data){const response=await fetch('/api'+route,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(route.endsWith('/force-remove')?180000:20000)});const value=await response.json();if(!response.ok)throw new Error(value.error||'Forespørgslen mislykkedes.');return value;}
+async function api(route,method='GET',data){const response=await fetch('/api'+route,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(route.endsWith('/force-remove')?180000:20000)});window.reelShrinkCheckAuth?.(response);const value=await response.json();if(!response.ok)throw new Error(value.error||'Forespørgslen mislykkedes.');return value;}
 const selectedJobs=new Set();
 let visibleJobs=[];
 const removable=j=>!['running','cancel_requested'].includes(j.state);
@@ -158,3 +158,4 @@ $('override-form').onsubmit=async e=>{e.preventDefault();try{await api('/jobs/'+
 $('force-selected').onclick=()=>window.forceRemoveDialog('/api/jobs/force-remove',[...selectedJobs],async()=>{
  selectedJobs.clear();if(detailId){$('job-dialog').close();detailId=null;}await refresh();
 });
+

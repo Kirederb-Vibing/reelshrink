@@ -226,7 +226,7 @@ Profiler vælges pr. mappe i GUI'en. De gemmes i SQLite. Jobs tager en kopi af p
 | `STABLE_SECONDS` | `60` | Minimumstid med uændrede filstørrelser og ændringstider; mindst 5 |
 | `ENCODE_THREADS` | `2` | Ønsket antal FFmpeg/encoder-tråde; 1–128 |
 | `MIN_FREE_GB` | `2` | Minimum ledig outputplads før start, i GiB |
-| `AUTH_USERNAME` | Tom | Brugernavn til valgfri HTTP Basic-login |
+| `AUTH_USERNAME` | Tom | Brugernavn til login-siden og valgfri passkeys |
 | `AUTH_PASSWORD` | Tom | Adgangskode; kræver også brugernavn |
 | `AUTH_PASSWORD_FILE` | Tom | Fil med adgangskode; prioriteres over `AUTH_PASSWORD` |
 | `FFMPEG_PATH` / `FFPROBE_PATH` | `ffmpeg` / `ffprobe` | Alternative binærstier |
@@ -237,7 +237,20 @@ Før et job startes, kræves mindst den største af `MIN_FREE_GB` og 110 % af or
 
 ### Login og netværk
 
-Standardinstallationen har ikke login. Brug den på et betroet netværk, eller sæt adgangskontrol i din reverse proxy. Skal den eksponeres eksternt, skal proxyen bruge HTTPS og passende login. Den indbyggede Basic-login kan aktiveres ved at udfylde både `AUTH_USERNAME` og `AUTH_PASSWORD` og genoprette containeren. Adgangskoder kan alternativt monteres som en secret og angives via `AUTH_PASSWORD_FILE`.
+Udfyld både `AUTH_USERNAME` og `AUTH_PASSWORD` for at aktivere den almindelige login-side. Eksisterende installationer med auth bruger automatisk siden efter opdatering; **ingen ændring af Compose eller `.env` er nødvendig**. Adgangskoden kan også angives via `AUTH_PASSWORD_FILE`. Uden auth er appen fortsat åben, beregnet til et betroet netværk eller en proxy med adgangskontrol. Brug HTTPS ved ekstern adgang.
+
+Loginformularen understøtter Bitwarden og andre password managers via almindelig autofyld. **Husk mig i 30 dage** gemmer login på den pågældende browser; ellers udløber sessionen efter 12 timer eller når browseren fjerner sessionscookies. **Log ud** findes på alle hovedsider. Login/logout fungerer også under **Stop alt sikkert**. Encoding og overførsler fortsætter uafhængigt af browserens login.
+
+Du kan også bruge en **login-nøgle (passkey)** fra fx Bitwarden:
+
+1. Åbn ReelShrink på dit faste HTTPS-domæne, og log ind med din eksisterende adgangskode.
+2. Vælg **Konto → Tilføj login-nøgle**, giv nøglen et navn og bekræft adgangskoden.
+3. Vælg fx Bitwarden, når browseren spørger, hvor nøglen skal gemmes.
+4. Næste gang vælger du **Log ind med login-nøgle**. Brugernavn og adgangskode er ikke nødvendige til dette login.
+
+Passkeys kræver HTTPS, et domænenavn og en understøttet browser/password manager. `http://localhost` kan bruges til lokal udvikling. På en lokal IP-adresse bruges adgangskodelogin. Proxyen skal bevare den oprindelige `Host`-header; der kræves ingen ny miljøvariabel eller ekstern konto. Nøgler er knyttet til det domæne, hvor de oprettes. [Bitwardens vejledning](https://bitwarden.com/en-gb/help/storing-passkeys/) beskriver, hvordan udvidelsen tilbyder at gemme og bruge passkeys.
+
+Under **Konto** kan du se og fjerne nøgler. Fjernelse kræver adgangskoden og afslutter også sessioner oprettet med den nøgle. Nøgler og sessioner gemmes i den eksisterende `/config`-database. Ændring af `AUTH_USERNAME` eller adgangskoden og genstart tilbagekalder **alle** nøgler og sessioner; nøgler tilføjes derefter på ny. API-klienter kan fortsat bruge eksplicit HTTP Basic-auth.
 
 Ingen telemetri, cloud-konto eller Docker-socket kræves. Applikationen uploader ikke dine mediefiler. Se [SECURITY.md](SECURITY.md).
 
@@ -281,7 +294,7 @@ Et offentligt repository gør ikke nødvendigvis den tilhørende GHCR-pakke offe
 
 ## Udvikling og test
 
-Installer Node.js 24 samt FFmpeg med libx265/libx264. Der er ingen tredjeparts-npm-afhængigheder og intet frontend-buildtrin.
+Installer Node.js 24 samt FFmpeg med libx265/libx264. Kør `npm ci --ignore-scripts` for at installere de versionslåste WebAuthn-afhængigheder. Der er intet frontend-buildtrin.
 
 ```bash
 node --test --test-concurrency=1 tests/*.test.mjs

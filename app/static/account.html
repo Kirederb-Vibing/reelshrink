@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">
+  <title>Konto · ReelShrink</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script defer src="/webauthn.js"></script><script defer src="/auth-ui.js"></script><script defer src="/session.js"></script><script defer src="/account.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">R<span>↘</span></span>ReelShrink</a></header>
+  <main class="account-shell" id="main">
+    <nav class="section-nav" aria-label="Funktioner"><a href="/archive">Arbejdsarkiv</a><a href="/">Encoding</a></nav>
+    <div class="heading"><div><p class="eyebrow">DIT LOGIN</p><h1>Konto & login-nøgler</h1></div></div>
+    <p id="account-status" class="muted">Henter konto…</p>
+    <section class="panel auth-card" aria-labelledby="keys-title">
+      <h2 id="keys-title">Dine login-nøgler</h2>
+      <p class="muted">Log ind med fx Bitwarden, din telefon eller en sikkerhedsnøgle. Din adgangskode kan altid bruges som reserve.</p>
+      <div id="passkey-list"><p class="hint">Henter login-nøgler…</p></div>
+    </section>
+    <section class="panel auth-card" aria-labelledby="add-key-title">
+      <h2 id="add-key-title">Tilføj login-nøgle</h2>
+      <p class="hint" id="add-key-hint">Giv nøglen et navn, og bekræft din adgangskode. Vælg derefter fx Bitwarden, når browseren spørger, hvor nøglen skal gemmes.</p>
+      <form id="key-form" method="post" action="/api/auth/passkeys/register/options">
+        <label for="key-name">Navn på nøgle</label><input id="key-name" name="name" maxlength="80" placeholder="Fx Bitwarden eller min telefon" required>
+        <input class="sr-only" id="account-username" name="username" autocomplete="username" aria-label="Brugernavn" readonly tabindex="-1">
+        <label for="key-password">Bekræft din adgangskode</label><input id="key-password" name="password" type="password" autocomplete="current-password" required>
+        <button class="button primary" type="submit" id="add-key" disabled>Tilføj login-nøgle</button>
+      </form>
+      <p id="key-message" class="auth-message" role="status" aria-live="polite"></p>
+    </section>
+    <p class="hint">Login-nøgler er knyttet til domænet, hvor de oprettes. Brug samme HTTPS-adresse, hver gang du åbner ReelShrink.</p>
+  </main>
+  <dialog id="delete-key-dialog" aria-labelledby="delete-key-title">
+    <h2 id="delete-key-title">Fjern login-nøgle</h2><p id="delete-key-name"></p>
+    <p class="hint">Nøglen kan ikke længere bruges til at logge ind. Logins oprettet med denne nøgle bliver også afsluttet.</p>
+    <form id="delete-key-form" method="post" action="/api/auth/passkeys/remove">
+      <input class="sr-only" id="delete-username" name="username" autocomplete="username" aria-label="Brugernavn" readonly tabindex="-1">
+      <label for="delete-password">Bekræft din adgangskode</label><input id="delete-password" name="password" type="password" autocomplete="current-password" required>
+      <p id="delete-key-error" class="auth-message auth-error" role="alert"></p>
+      <div class="actions"><button id="cancel-delete" class="button secondary" type="button">Annullér</button><button class="button danger" type="submit">Fjern login-nøgle</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

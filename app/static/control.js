@@ -6,6 +6,7 @@
   const state=panel.querySelector('[data-state]'),error=panel.querySelector('[data-error]'),stop=panel.querySelector('[data-stop]'),resume=panel.querySelector('[data-resume]');let busy=false;
   async function api(route,method='GET'){
     const r=await fetch('/api/control'+route,{method,headers:{'X-ReelShrink':'1','Content-Type':'application/json'},...(method==='POST'?{body:'{}'}:{}),signal:AbortSignal.timeout(15000)});
+  window.reelShrinkCheckAuth?.(r);
     const data=await r.json();if(!r.ok)throw new Error(data.error||'Forespørgslen fejlede.');return data;
   }
   function render(s){
@@ -31,3 +32,4 @@
   resume.onclick=()=>action('/resume');
   refresh();setInterval(()=>{if(!document.hidden)refresh();},2500);
 })();
+
