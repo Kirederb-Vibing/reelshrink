@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.9.0';
 export function config(env = process.env) {
   const integer = (key, fallback, min, max) => {
     const value = Number(env[key] ?? fallback);
@@ -90,3 +90,4 @@ export function filterReason(options, size, media = null) {
   if (s.skipCodecs.includes(media.video.codec_name)) return `Filter: Kildens codec (${media.video.codec_name}) er fravalgt.`;
   return null;
 }
+

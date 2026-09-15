@@ -1,6 +1,22 @@
 # JSON-API
 
-Samme origin og port som GUI'en. JSON-svar. HTTP Basic gælder alle endpoints undtagen `GET /api/health`, hvis login er aktiveret. Alle skrivende kald skal sende headeren `X-ReelShrink: 1`. POST/PUT kræver desuden `Content-Type: application/json`. En medsendt `Origin` skal have samme host/port som forespørgslens `Host`.
+Samme origin og port som GUI'en. JSON-svar. Når login er aktiveret, kræver appens API session-cookie eller eksplicit HTTP Basic fra en API-klient. `GET /api/health`, login-assets og login/session-ruterne er offentlige. Alle skrivende kald skal sende headeren `X-ReelShrink: 1`. POST/PUT kræver desuden `Content-Type: application/json`. En medsendt `Origin` skal have samme host/port som forespørgslens `Host`. Alle skrivende `/api/auth/*`-kald kræver desuden `Origin`, også fra scripts. API'et udsender ikke længere en Basic browser-challenge; uautoriserede sider omdirigerer til `/login`, og API-kald returnerer JSON med status 401.
+
+## Browserlogin og passkeys (v0.9.0)
+
+| Metode og rute | Data / resultat |
+| --- | --- |
+| `GET /api/auth/session` | `{enabled, authenticated, username?}`; kun browser-session, ikke Basic |
+| `POST /api/auth/login` | `{username, password, remember?}`; opretter HttpOnly-cookie |
+| `POST /api/auth/logout` | `{}`; tilbagekalder session og rydder cookies |
+| `GET /api/auth/passkeys` | Session kræves; liste med `id`, `rp_id`, `label`, `created`, `last_used` |
+| `POST /api/auth/passkeys/register/options` | Session + `{label, password}`; WebAuthn creation-options |
+| `POST /api/auth/passkeys/register/verify` | Session + `{response}` fra browserens `startRegistration`; 201 ved succes |
+| `POST /api/auth/passkeys/authenticate/options` | `{remember?}`; WebAuthn request-options uden krav om brugernavn |
+| `POST /api/auth/passkeys/authenticate/verify` | `{response}` fra `startAuthentication`; opretter session-cookie |
+| `POST /api/auth/passkeys/remove` | Session + `{id, rpID, password}`; fjerner nøgle og dens sessioner |
+
+Browseren skal bevare challenge-cookien mellem options og verify. Challenges udløber efter fem minutter og kan kun bruges én gang. Passkeys kræver HTTPS-domæne eller localhost. En passkey udleverer aldrig sin private nøgle til ReelShrink. Login og nøglestyring er tilgængelig under samlet processtop. Disse ruter ændrer ingen mediekøer eller filer.
 
 | Metode | Endpoint | Funktion |
 | --- | --- | --- |

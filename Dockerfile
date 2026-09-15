@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 
-ARG VERSION=0.8.0
+ARG VERSION=0.9.0
 ARG REVISION=unknown
 ARG SOURCE_URL
 LABEL org.opencontainers.image.title="ReelShrink" \
@@ -16,7 +16,8 @@ RUN apt-get update \
     && mkdir -p /app /config /output /media /incoming \
     && chown -R node:node /app /config /output
 WORKDIR /app
-COPY --chown=node:node package.json ./
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --chown=node:node app ./app
 COPY LICENSE THIRD_PARTY_NOTICES.md ./
 ENV NODE_ENV=production PORT=8080 CONFIG_DIR=/config MEDIA_ROOTS=/media OUTPUT_ROOT=/output
@@ -25,3 +26,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "app/healthcheck.mjs"]
 CMD ["node", "app/server.mjs"]
+

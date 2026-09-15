@@ -1,4 +1,14 @@
-# Verifikation af v0.7.0
+# Verifikation
+
+## v0.9.0 — login og passkeys
+
+15. september 2026: De eksisterende 113 tests og otte nye auth-tests kontrollerer login, sessioner, same-origin/CSRF, logout under samlet stop, proxy/HTTPS-cookies, udløb, credential-skift, rate limiting og passkeys. Passkey-testene bruger rigtige ES256-nøglepar, CBOR-attestationer og signerede assertions gennem produktionsbiblioteket. Forkert signatur, origin, RP, bruger, challenge, manglende brugerbekræftelse, udløb og replay afvises. Synkroniserede nøgler med counter=0 understøttes.
+
+GitHub CI kører også `npm run test:browser` i Chromium med en virtuel WebAuthn-authenticator: almindeligt login, returnering til den ønskede side, Husk mig, nøgleoprettelse, nøglelogin, fjernelse og logout samt mobilbredde. Bitwardens konkrete udvidelse og brugerens reverse proxy skal afprøves i den konkrete installation.
+
+Kør lokalt med `npm ci --ignore-scripts`, `npm run check` og `npm test`. Browsertesten kræver desuden `npx playwright install --with-deps chromium --only-shell` og `npm run test:browser`. Chromium kunne ikke downloades i det lokale arbejdsmiljø, så browserkontrollen udføres i GitHub CI.
+
+## v0.7.0
 
 12. september 2026: **95 tests bestået, 0 fejlet** med Node.js 24.19.0 og FFmpeg. `npm run check` og `git diff --check` er bestået.
 

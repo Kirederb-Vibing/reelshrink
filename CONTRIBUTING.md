@@ -1,6 +1,6 @@
 # Contributing
 
-ReelShrink uses Node.js 24 built-ins, SQLite, FFmpeg and plain HTML/CSS/JavaScript. No npm install or UI build step is required.
+ReelShrink uses Node.js 24, SQLite, FFmpeg and plain HTML/CSS/JavaScript. Run `npm ci --ignore-scripts` to install the locked WebAuthn dependencies. No UI build step is required; browser scripts are served locally.
 
 1. Create a branch from `main`.
 2. Keep user-facing strings in Danish; code/comments may be English.

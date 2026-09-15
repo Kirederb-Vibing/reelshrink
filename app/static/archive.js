@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const bytes=n=>{if(!n)return '0 B';const i=Math.min(4,Math.floor(Math.log(n)/Math.log(1024)));return(n/1024**i).toFixed(i?1:0)+' '+['B','KiB','MiB','GiB','TiB'][i];};
 let status={items:[]},library={items:[],counts:{},progress:{}},downloads=new Set(),uploads=new Set(),unsafeUploads=new Set(),sending=[],libraryOffset=0,filtersLoaded=false,flowLoaded=false,busy=false,refreshing=false;
-async function api(url,method='GET',data){const res=await fetch(url,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},...(data===undefined?{}:{body:JSON.stringify(data)})});const value=await res.json();if(!res.ok)throw new Error(value.error||'Forespørgslen fejlede.');return value;}
+async function api(url,method='GET',data){const res=await fetch(url,{method,headers:{'Content-Type':'application/json','X-ReelShrink':'1'},...(data===undefined?{}:{body:JSON.stringify(data)})});window.reelShrinkCheckAuth?.(res);const value=await res.json();if(!res.ok)throw new Error(value.error||'Forespørgslen fejlede.');return value;}
 function error(e){$('error').textContent=e.message;$('error').hidden=false;}
 async function action(fn){busy=true;try{$('error').hidden=true;await fn();}catch(e){error(e);}finally{busy=false;syncButtons();}}
 function libraryParams(){return new URLSearchParams({state:$('library-filter').value,q:$('library-search').value,limit:$('library-page-size').value,offset:String(libraryOffset)});}
@@ -89,3 +89,4 @@ $('approve-batch').onclick=()=>action(async()=>{
 $('force-work').onclick=()=>window.forceRemoveDialog('/api/archive/force-remove',[...uploads],async()=>{
  uploads.clear();await refresh();
 });
+

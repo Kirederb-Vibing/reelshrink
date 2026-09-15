@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
+import { Auth, checkWrite } from './auth.mjs';
 import { config, mediaPath, inside, processingPath, settings, FILTER_DEFAULTS, filterReason, VERSION } from './config.mjs';
 import { Store } from './store.mjs';
 import { Engine } from './engine.mjs';
@@ -18,7 +18,6 @@ import { run } from './media.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
 function fail(message,status=400) {throw Object.assign(new Error(message),{status});}
-function equal(a,b) {const aa=Buffer.from(a),bb=Buffer.from(b);return aa.length===bb.length&&timingSafeEqual(aa,bb);}
 async function body(req) {
   if(!req.headers['content-type']?.startsWith('application/json')) fail('Forventede application/json.',415);
   let size=0,parts=[];
@@ -55,29 +54,37 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
   const unified=c.workRoot&&archive instanceof WorkArchive;
   if(unified)store.run("INSERT OR REPLACE INTO settings VALUES ('return_options',?)",JSON.stringify({automatic:false,from:'',to:''}));
   const control=new RunControl(store,engine,archive,returner);control.init();
+  const auth=new Auth(c,store);
   if(background) {engine.start();if(!unified)returner.start();archive.start();}
   const json=(res,status,value)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   const server=http.createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('Referrer-Policy','no-referrer');
     res.setHeader('X-Frame-Options','DENY');
+    res.setHeader('Permissions-Policy','publickey-credentials-get=(self), publickey-credentials-create=(self)');
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     res.setHeader('Cache-Control','no-store');
     try {
       const url=new URL(req.url,'http://localhost'),p=url.pathname,method=req.method;
       if(p==='/api/health'&&method==='GET') return json(res,200,{status:'ok',version:VERSION});
-      if(c.username) {
-        const auth=req.headers.authorization||'';
-        let token='';try {if(auth.startsWith('Basic '))token=Buffer.from(auth.slice(6),'base64').toString();}catch{}
-        if(!equal(token,c.username+':'+c.password)) {res.setHeader('WWW-Authenticate','Basic realm="ReelShrink", charset="UTF-8"');return json(res,401,{error:'Log ind for at fortsætte.'});}
+      const publicAssets={'/login':['login.html','text/html'],'/login.js':['login.js','text/javascript'],'/auth-ui.js':['auth-ui.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      if(publicAssets[p]&&['GET','HEAD'].includes(method)) {
+        if(p==='/login'&&(!c.username||auth.session(req))){res.writeHead(302,{location:'/'});return res.end();}
+        const [file,type]=publicAssets[p],content=await fs.readFile(path.join(staticDir,file));
+        res.writeHead(200,{'content-type':type+'; charset=utf-8'});return res.end(method==='HEAD'?undefined:content);
       }
-      if(!['GET','HEAD'].includes(method)) {
-        if(req.headers['x-reelshrink']!=='1') fail('Sikkerhedsheader mangler.',403);
-        if(req.headers.origin) {
-          let origin;try {origin=new URL(req.headers.origin);}catch {fail('Ugyldig origin.',403);}
-          if(origin.host!==req.headers.host)fail('Forespørgsler fra andre websites er ikke tilladt.',403);
+      if(p==='/webauthn.js'&&['GET','HEAD'].includes(method)) {
+        const content=await fs.readFile(new URL('../node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js',import.meta.url));
+        res.writeHead(200,{'content-type':'text/javascript; charset=utf-8'});return res.end(method==='HEAD'?undefined:content);
+      }
+      if(p.startsWith('/api/auth/'))return await auth.handle(req,res,p,method,body,json);
+      if(!auth.authenticated(req)) {
+        if(['GET','HEAD'].includes(method)&&['/','/archive','/returns','/account'].includes(p)) {
+          res.writeHead(302,{location:'/login?next='+encodeURIComponent(p+url.search)});return res.end();
         }
+        return json(res,401,{error:'Log ind for at fortsætte.'});
       }
+      if(!['GET','HEAD'].includes(method))checkWrite(req);
       if(p==='/api/control'&&method==='GET')return json(res,200,control.status());
       if(p==='/api/control/stop'&&method==='POST'){await body(req);return json(res,202,control.stop());}
       if(p==='/api/control/resume'&&method==='POST'){await body(req);return json(res,202,control.resume());}
@@ -88,7 +95,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
       }
       if(archive.forceRemoving&&!['GET','HEAD'].includes(method))fail('Force Slet er i gang. Vent til oprydningen er færdig.',409);
       if(unified&&['/api/archive/force-remove','/api/jobs/force-remove'].includes(p)&&method==='POST'){const d=await body(req);return json(res,200,await forceRemove(archive,p.includes('/jobs/')?'jobs':'archive',d.ids,d.confirmation));}
-      const assets={'/control.js':['control.js','text/javascript'],'/force-remove.js':['force-remove.js','text/javascript'],'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+      const assets={'/account':['account.html','text/html'],'/account.js':['account.js','text/javascript'],'/session.js':['session.js','text/javascript'],'/control.js':['control.js','text/javascript'],'/force-remove.js':['force-remove.js','text/javascript'],'/archive':['archive.html','text/html'],'/archive.js':['archive.js','text/javascript'],'/':['index.html','text/html'],'/returns':['returns.html','text/html'],'/returns.js':['returns.js','text/javascript'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(unified&&p==='/returns'){res.writeHead(302,{location:'/archive#work-list'});return res.end();}
       if(unified&&p.startsWith('/api/returns'))fail('Tilbageførsel styres nu fra Work-siden.',410);
       if(unified&&p==='/api/archive/receive'&&method==='POST')return json(res,201,{id:await archive.receive(req,url.searchParams.get('name'),url.searchParams.get('destination')||'')});
@@ -236,7 +243,7 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
   });
   server.requestTimeout=24*60*60*1000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
   server.maxHeadersCount=50;
-  return {server,store,engine,returner,archive,control,close:async()=>{
+  return {server,store,auth,engine,returner,archive,control,close:async()=>{
     control.closing=true;
     const closed=new Promise(resolve=>server.listening?server.close(resolve):resolve());
     server.closeIdleConnections();await archive.stop();await returner.stop();await engine.stop();await control.task;await closed;store.close();

@@ -7,6 +7,7 @@ const reviewStates = ['ambiguous','unmatched','blocked','attention','failed'];
 let data = null, selected = new Set(), unsafeSelected = new Set(), oldSelected = new Set(), offset = 0, visible = [], refreshing = false, initialized = false, pendingConfirm = null, busy = false;
 async function api(url, method = 'GET', body) {
   const r = await fetch('/api/returns' + url, { method, headers: { 'Content-Type':'application/json', 'X-ReelShrink':'1' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  window.reelShrinkCheckAuth?.(r);
   const value = await r.json(); if (!r.ok) throw new Error(value.error || 'Forespørgslen fejlede.'); return value;
 }
 function toast(text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 6000); }
@@ -116,3 +117,4 @@ $('confirm-form').onsubmit = async e => {
   if (ok) { toast(p.action === 'move' ? 'Filerne er sat i flyttekø.' : p.action === 'delete' ? 'De valgte OLD-filer er slettet.' : 'Originalen er gendannet.'); selected.clear(); unsafeSelected.clear(); oldSelected.clear(); syncSelection(); }
 };
 refresh(); setInterval(() => { if (!document.hidden && !$('confirm-dialog').open) refresh(); }, 3000);
+

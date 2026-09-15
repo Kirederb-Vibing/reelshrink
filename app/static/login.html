@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>Log ind · ReelShrink</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script defer src="/webauthn.js"></script><script defer src="/auth-ui.js"></script><script defer src="/login.js"></script>
+</head>
+<body class="login-page">
+  <main class="login-shell">
+    <a class="brand login-brand" href="/" aria-label="ReelShrink"><span class="brand-mark" aria-hidden="true">R<span>↘</span></span>ReelShrink</a>
+    <section class="panel auth-card" aria-labelledby="login-title">
+      <p class="eyebrow">VELKOMMEN TILBAGE</p><h1 id="login-title">Log ind</h1>
+      <p class="muted">Dit arbejdsarkiv og din encoding-kø.</p>
+      <form id="login-form" method="post" action="/api/auth/login">
+        <label for="username">Brugernavn</label><input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+        <label for="password">Adgangskode</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+        <label class="check"><input id="remember" name="remember" type="checkbox"><span>Husk mig i 30 dage</span></label>
+        <button id="login-submit" class="button primary auth-full" type="submit">Log ind</button>
+      </form>
+      <div class="auth-divider"><span>eller</span></div>
+      <button id="passkey-login" class="button secondary auth-full" type="button" disabled>Log ind med login-nøgle</button>
+      <p class="hint" id="passkey-hint">Du kan tilføje en login-nøgle under Konto efter dit første login.</p>
+      <p class="auth-message" id="login-message" role="status" aria-live="polite"></p>
+      <noscript><p class="alert">Slå JavaScript til for at logge ind.</p></noscript>
+    </section>
+    <p class="hint auth-footer">Brug gerne Bitwarden til at udfylde dit login eller gemme en login-nøgle.</p>
+  </main>
+</body>
+</html>

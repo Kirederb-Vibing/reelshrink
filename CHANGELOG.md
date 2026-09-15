@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — 2026-09-15
+
+- Almindelig login-side med autofyld til fx Bitwarden, Husk mig i 30 dage og Log ud.
+- Valgfri WebAuthn/passkeys med Konto-side til oprettelse, oversigt og fjernelse. Password-bekræftelse kræves ved nøglestyring.
+- HttpOnly-sessioner gemmes i SQLite, og nøgler/sessioner tilbagekaldes ved ændrede auth-oplysninger. Login fungerer også under Stop alt sikkert.
+- Eksisterende AUTH_USERNAME/AUTH_PASSWORD bruges direkte; ingen Compose- eller .env-ændringer. Passkeys kræver et fast HTTPS-domæne (eller localhost til udvikling).
+- Versionslåste SimpleWebAuthn-afhængigheder installeres i Docker og CI. API-klienter kan fortsat bruge HTTP Basic; browseren får en login-side uden Basic-popup.
+
 ## 0.8.0 — 2026-09-14
 
 - Stop alt sikkert / Genoptag alt på Encoding, Work/import og den tidligere tilbageflytningsside.

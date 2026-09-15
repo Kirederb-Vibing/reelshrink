@@ -13,12 +13,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Check JavaScript and run real encoding tests
         run: |
           npm run check
           npm test
+      - name: Check browser login and passkeys
+        run: |
+          npx playwright install --with-deps chromium --only-shell
+          npm run test:browser
       - name: Validate Compose files
         run: |
           docker compose --env-file .env.example config --quiet
