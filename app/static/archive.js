@@ -36,6 +36,20 @@ $('library-previous').onclick=()=>{const n=Number($('library-page-size').value);
 $('scan-library').onclick=()=>action(async()=>{await api('/api/archive/library/scan','POST',{});await refresh();});$('scan-form').onsubmit=e=>{e.preventDefault();action(async()=>{await api('/api/archive/library/settings','PUT',scanSettings());await api('/api/archive/library/scan','POST',{});libraryOffset=0;downloads.clear();await refresh();});};
 $('library-list').onchange=e=>{const p=e.target.dataset.library;if(!p)return;if(e.target.checked&&downloads.size<100)downloads.add(p);else{downloads.delete(p);e.target.checked=false;}syncButtons();};$('select-library').onchange=e=>{if(e.target.checked)for(const r of library.items.filter(r=>r.state==='eligible'&&!r.imported)){if(downloads.size>=100)break;downloads.add(r.path);}else downloads.clear();renderLibrary();};
 $('download').onclick=()=>action(async()=>{await api('/api/archive/download','POST',{paths:[...downloads]});downloads.clear();await refresh();});
+async function renderPlaces(){const places=await api('/api/places');$('place-list').innerHTML=places.map(p=>`<article class="return-row"><strong>${esc(p.name)}</strong> <span class="tag">${esc(p.type.toUpperCase())}</span><p class="hint">${esc(p.config.host||p.config.endpoint)} · ${esc(p.config.share||p.config.bucket||p.config.user||'')}${p.config.path?' / '+esc(p.config.path):''}</p><button class="button small secondary" data-place-test="${esc(p.id)}">Test</button> <button class="button small danger" data-place-remove="${esc(p.id)}">Fjern</button></article>`).join('')||'<p class="hint">Ingen ekstra steder. Docker-mapperne bruges, indtil du tilføjer et netværkssted.</p>';}
+$('add-place').onclick=()=>{$('place-error').hidden=true;$('place-dialog').showModal();};
+$('place-cancel').onclick=()=>$('place-dialog').close();
+$('place-form').onsubmit=e=>{e.preventDefault();action(async()=>{
+  const type=$('place-type').value,host=$('place-host').value.trim(),target=$('place-target').value.trim(),sub=$('place-path').value.trim();
+  const parts=target.split('/');
+  const config=type==='smb'?{host,user:parts[1]?parts[0]:'guest',share:parts[1]||parts[0],path:sub}:type==='sftp'?{host,user:target,path:sub,port:22}:{endpoint:host,access_key_id:parts[0],bucket:parts[1]||parts[0],path:sub};
+  const saved=await api('/api/places','POST',{name:$('place-name').value,type,config,secret:$('place-secret').value});
+  try{await api('/api/places/'+saved.id+'/test','POST',{});$('place-dialog').close();}
+  catch(err){$('place-error').textContent='Gemt, men forbindelsen fejlede: '+err.message;$('place-error').hidden=false;}
+  await renderPlaces();
+});};
+document.addEventListener('click',e=>{const test=e.target.dataset?.placeTest,remove=e.target.dataset?.placeRemove;if(test)action(async()=>{await api('/api/places/'+test+'/test','POST',{});$('error').hidden=true;});if(remove)action(async()=>{await api('/api/places/'+remove,'DELETE');await renderPlaces();});});
+renderPlaces();
 
 $('work-search').oninput=renderWork;$('work-filter').onchange=renderWork;
 $('work-list').onchange=e=>{const id=e.target.dataset.work;if(!id)return;if(e.target.checked&&uploads.size<100)uploads.add(id);else{uploads.delete(id);e.target.checked=false;}syncButtons();};

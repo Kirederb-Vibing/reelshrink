@@ -31,6 +31,8 @@ export class Store {
       this.db.exec('ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
     }
     if (!this.all('PRAGMA table_info(jobs)').some(c => c.name === 'output_sha256')) this.db.exec('ALTER TABLE jobs ADD COLUMN output_sha256 TEXT');
+    if (!this.all('PRAGMA table_info(jobs)').some(c => c.name === 'attempts')) this.db.exec('ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+    if (!this.all('PRAGMA table_info(jobs)').some(c => c.name === 'next_retry')) this.db.exec('ALTER TABLE jobs ADD COLUMN next_retry INTEGER');
     this.db.exec(`PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS returns (
         id TEXT PRIMARY KEY, input TEXT NOT NULL, input_stamp TEXT NOT NULL,
@@ -67,7 +69,7 @@ export class Store {
     return this.watch(id);
   }
   updateJob(id, fields) {
-    const allowed = new Set(['state','progress','speed','eta','output_bytes','saved_bytes','output','output_sha256','error','log','info','settings']);
+    const allowed = new Set(['state','progress','speed','eta','output_bytes','saved_bytes','output','output_sha256','error','log','info','settings','attempts','next_retry']);
     if (Object.keys(fields).some(k => !allowed.has(k))) throw new Error('Unknown job field');
     const entries = Object.entries({ ...fields, updated: Date.now() });
     this.run(`UPDATE jobs SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`, ...entries.map(([, v]) => v ?? null), id);

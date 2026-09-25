@@ -102,6 +102,7 @@ export class WorkArchive extends Archive {
     this.tick();
   }
   async upload(r) {
+    if(r.data.placeId) return this.uploadPlace(r);
     if(r.data.upload&&!r.data.upload.workV2)fail('En tidligere overførsel kræver manuel gennemgang. Dens journal er bevaret.');
     await this.origin(r);
     const d=r.data;

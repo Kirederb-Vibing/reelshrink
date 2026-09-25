@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { WorkArchive } from './work.mjs';
 import { bundleFor, signatureFor } from './media.mjs';
 import { digest, fingerprint } from './returner.mjs';
+import { failureKind, transferRetry } from './engine.mjs';
 
 const exists=p=>fs.lstat(p).then(()=>true,e=>{if(e.code==='ENOENT')return false;throw e;});
 const fail=message=>{throw new Error(message);};
@@ -43,10 +44,10 @@ export class FlowArchive extends WorkArchive {
     if(!r) {
       if(o.mode==='speedy_risky') {
         if(!batch){const ids=rows.filter(r=>r.state==='queued_download').slice(0,o.buffer).map(r=>r.id);if(!ids.length)return;batch={id:randomUUID(),ids,limit:o.buffer};this.saveBatch(batch);}
-        r=rows.find(r=>r.state==='queued_download'&&batch.ids.includes(r.id));
+        r=rows.find(r=>r.state==='queued_download'&&batch.ids.includes(r.id)&&!(r.data.nextRetry>Date.now()));
       }else {
         const occupied=rows.filter(r=>['local','ready','downloading','receiving','queued_upload','uploading','attention'].includes(r.state)).length;
-        if(occupied<o.buffer)r=rows.find(r=>r.state==='queued_download');
+        if(occupied<o.buffer)r=rows.find(r=>r.state==='queued_download'&&!(r.data.nextRetry>Date.now()));
       }
     }
     if(!r)return;
@@ -54,7 +55,15 @@ export class FlowArchive extends WorkArchive {
       this.update(r.id,r.state,{...r.data,flowMode:o.mode,...(batch?{batchId:batch.id}:{})});r=this.row(r.id);
     }
     this.active=r.id;const downloading=r.state==='queued_download',started=Date.now();
-    this.workerPromise=(downloading?this.download(r):this.upload(r)).catch(e=>{const latest=this.row(r.id);this.update(r.id,downloading?'failed_download':'attention',{...latest.data,error:e.message,phase:'Stoppet – gennemgå og prøv igen'});}).finally(()=>{
+    this.workerPromise=(downloading?this.download(r):this.upload(r)).catch(e=>{
+      const latest=this.row(r.id);const again=failureKind(e)==='transient'?transferRetry(latest.data):null;
+      if(again) this.update(r.id,r.state,{...latest.data,attempts:again.attempts,nextRetry:again.nextRetry,error:`Forsøg ${again.attempts} af 5 om ${Math.round(again.wait/60000)} min. ${e.message}`,phase:'Prøver igen'});
+      else {
+        this.update(r.id,downloading?'failed_download':'attention',{...latest.data,nextRetry:null,error:e.message,phase:'Stoppet – gennemgå og prøv igen'});
+        const batch=this.batch();
+        if(downloading&&batch?.ids.includes(r.id)){const ids=batch.ids.filter(id=>id!==r.id);if(ids.length)this.saveBatch({...batch,ids});else this.store.run("DELETE FROM settings WHERE key='work_batch'");}
+      }
+    }).finally(()=>{
       this.recordTiming(r.local_source,downloading?'downloadMs':'uploadMs',Date.now()-started);this.active=null;this.workerPromise=null;
       if(!this.stopping)setImmediate(()=>this.tick());
     });

@@ -15,6 +15,8 @@ import { FlowArchive } from './speedy.mjs';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { run } from './media.mjs';
+import { detectHardware } from './hardware.mjs';
+import { Places } from './places.mjs';
 
 const staticDir=path.join(path.dirname(fileURLToPath(import.meta.url)),'static');
 function fail(message,status=400) {throw Object.assign(new Error(message),{status});}
@@ -29,8 +31,7 @@ async function body(req) {
 }
 export async function createService(c,{background=true,archiveClass=FlowArchive}={}) {
   await prepareWork(c);
-  const encoders=await run(c.ffmpeg,['-hide_banner','-encoders'],{timeout:10000});
-  if(!encoders.out.includes('libx265')||!encoders.out.includes('libx264')) throw new Error('FFmpeg skal indeholde libx265 og libx264.');
+  c.hardware=await detectHardware(c);
   await run(c.ffprobe,['-version'],{timeout:10000});
   await fs.mkdir(c.outputRoot,{recursive:true});await fs.mkdir(c.configDir,{recursive:true});
   c.outputRoot=await fs.realpath(c.outputRoot);c.configDir=await fs.realpath(c.configDir);
@@ -45,10 +46,10 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
     const others=await Promise.all([c.configDir,c.outputRoot,...c.mediaRoots].map(r=>fs.realpath(r).catch(()=>r)));
     if(others.some(other=>inside(real,other)||inside(other,real)))throw new Error('Ekstra fra-mapper overlapper en anden montering.');
   }
-  const store=new Store(c.configDir),engine=new Engine(c,store);
+  const store=new Store(c.configDir),engine=new Engine(c,store),places=new Places(store,c.configDir);
   await engine.init();
   const returner=new Returner(c,store,engine);
-  const archive=new archiveClass(c,store,engine,returner);
+  const archive=new archiveClass(c,store,engine,returner);archive.places=places;
   await archive.init();
   await returner.init();
   const unified=c.workRoot&&archive instanceof WorkArchive;
@@ -66,7 +67,10 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
     res.setHeader('Cache-Control','no-store');
     try {
       const url=new URL(req.url,'http://localhost'),p=url.pathname,method=req.method;
-      if(p==='/api/health'&&method==='GET') return json(res,200,{status:'ok',version:VERSION});
+      if(p==='/api/health'&&method==='GET') {
+        const disk=await fs.statfs(c.outputRoot).catch(()=>null);
+        return json(res,200,{status:'ok',version:VERSION,ffmpeg:Boolean(c.hardware),devices:c.hardware?.devices||{},encoders:c.hardware?.encoders||[],freeBytes:disk?disk.bavail*disk.bsize:null,hold:engine.holdReason,activeJobs:[engine.active?.id,engine.extra?.id].filter(Boolean)});
+      }
       const publicAssets={'/login':['login.html','text/html'],'/login.js':['login.js','text/javascript'],'/auth-ui.js':['auth-ui.js','text/javascript'],'/style.css':['style.css','text/css'],'/favicon.svg':['favicon.svg','image/svg+xml']};
       if(publicAssets[p]&&['GET','HEAD'].includes(method)) {
         if(p==='/login'&&(!c.username||auth.session(req))){res.writeHead(302,{location:'/'});return res.end();}
@@ -119,7 +123,13 @@ export async function createService(c,{background=true,archiveClass=FlowArchive}
         const [file,type]=assets[p];const content=await fs.readFile(path.join(staticDir,file));
         res.writeHead(200,{'content-type':type+'; charset=utf-8','cache-control':'no-store'});return res.end(method==='HEAD'?undefined:content);
       }
-      if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,workRoot:c.workRoot,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username)});
+      if(p==='/api/config'&&method==='GET') return json(res,200,{version:VERSION,workRoot:c.workRoot,mediaRoots:c.mediaRoots,outputRoot:c.outputRoot,threads:c.threads,scanInterval:c.scanInterval,stableSeconds:c.stableSeconds,authentication:Boolean(c.username),devices:c.hardware?.devices||{cpu:true},encoders:c.hardware?.encoders||[]});
+      if(p==='/api/places'&&method==='GET') return json(res,200,places.list());
+      if(p==='/api/places'&&method==='POST') return json(res,201,places.save(await body(req)));
+      const placeMatch=p.match(/^\/api\/places\/([a-f0-9-]+)(\/test)?$/);
+      if(placeMatch&&method==='PUT'&&!placeMatch[2]) return json(res,200,places.save(await body(req),placeMatch[1]));
+      if(placeMatch&&method==='DELETE'&&!placeMatch[2]) { places.remove(placeMatch[1]); return json(res,200,{ok:true}); }
+      if(placeMatch&&method==='POST'&&placeMatch[2]==='/test') { await body(req); return json(res,200,await places.test(placeMatch[1])); }
       if(p==='/api/archive'&&method==='GET') return json(res,200,archive.status());
       if(p==='/api/archive/library'&&method==='GET') return json(res,200,archive.libraryStatus(Object.fromEntries(url.searchParams)));
       if(p==='/api/archive/library/settings'&&method==='PUT') return json(res,200,archive.setScanFilters(await body(req)));

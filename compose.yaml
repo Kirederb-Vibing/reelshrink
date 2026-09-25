@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     init: true
     user: "${PUID:-1000}:${PGID:-1000}"
-    stop_grace_period: 30s
+    stop_grace_period: 2m
     ports:
       - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:8080"
     environment:
@@ -39,6 +39,9 @@ services:
         target: /output
         bind:
           create_host_path: false
+    # Valgfri GPU. NVIDIA kræver nvidia-container-runtime. Intel/AMD kræver render-enheden.
+    # devices:
+    #   - /dev/dri:/dev/dri
     security_opt:
       - no-new-privileges:true
     cap_drop:
