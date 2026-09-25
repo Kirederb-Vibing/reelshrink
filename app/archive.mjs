@@ -267,6 +267,19 @@ export class Archive {
     if(await this.identity(d.drive.path)!==d.driveId||await this.identity(d.originalDir)!==d.directoryId) conflict('Biblioteksdrevet eller originalmappen er udskiftet eller ikke monteret.');
   }
   async unchanged(file,stamp,root) { await this.allowed(file,root);if(await fingerprint(file)!==stamp) conflict('Filen er ændret siden hentning/kontrol: '+file); }
+  noteTransfer(r, state, stats) {
+    if (stats.total) r.data.total = Math.max(r.data.total || 0, stats.total);
+    const now = Date.now();
+    this.transferNoted ||= new Map();
+    const previous = this.transferNoted.get(r.id);
+    if (Number.isFinite(stats.bytes)) {
+      if (previous && stats.bytes >= previous.bytes) r.data.speed = (stats.bytes - previous.bytes) / Math.max(0.001, (now - previous.at) / 1000);
+      r.data.bytes = stats.bytes;
+    } else if (stats.speed) r.data.speed = stats.speed;
+    if (previous && now - previous.at < 400) return;
+    this.transferNoted.set(r.id, { at: now, bytes: r.data.bytes || 0 });
+    this.update(r.id, state, r.data);
+  }
   async copy(source,dest,r,state) {
     const hash=createHash('sha256');let last=0;const started=Date.now(),base=r.data.bytes;
     const meter=new Transform({transform:(chunk,encoding,done)=>{
@@ -282,7 +295,8 @@ export class Archive {
     if(this.store.get('SELECT id FROM archive_items WHERE source=?',source)) conflict('Emnet findes allerede i arbejdsarkivets historik. Brug Prøv igen ved fejl.');
     const id=randomUUID(), name=path.basename(remote.rel), local_source=path.join(this.c.mediaRoots[0],id,name);
     const config=JSON.parse(place.config);
-    return {id,source,local_source,data:{placeId:place.id,remotePath:remote.rel,originalDir:source.slice(0, source.lastIndexOf('/')),drive:{type:place.type,name:place.name},directoryId:'place:'+place.id,driveId:'place:'+place.id,manifest:[{source,relative:name,stamp:`remote:${config.host||config.endpoint}:${remote.rel}`,size:0}],phase:'I kø til hentning',bytes:0,total:0,error:null}};
+    const known=Number(this.store.get('SELECT size FROM archive_candidates WHERE path=?',source)?.size)||0;
+    return {id,source,local_source,data:{placeId:place.id,remotePath:remote.rel,originalDir:source.slice(0, source.lastIndexOf('/')),drive:{type:place.type,name:place.name},directoryId:'place:'+place.id,driveId:'place:'+place.id,manifest:[{source,relative:name,stamp:`remote:${config.host||config.endpoint}:${remote.rel}`,size:known}],phase:'I kø til hentning',bytes:0,total:known,error:null}};
   }
   async download(r) {
     if(r.data.placeId) return this.downloadPlace(r);
@@ -321,8 +335,8 @@ export class Archive {
     if(await exists(stage)) await fs.rm(stage,{recursive:true});
     await fs.mkdir(stage,{recursive:true});
     const dest=path.join(stage,path.basename(r.local_source));
-    r.data.phase='Henter fra '+place.name; this.update(r.id,'downloading',r.data);
-    await this.places.copyTo(place, r.data.remotePath, dest, this.controller.signal);
+    r.data.bytes=0; r.data.phase='Henter fra '+place.name; this.update(r.id,'downloading',r.data);
+    await this.places.copyTo(place, r.data.remotePath, dest, this.controller.signal, stats => this.noteTransfer(r, 'downloading', stats));
     const size=(await fs.stat(dest)).size;
     r.data.manifest[0].size=size; r.data.manifest[0].hash=await digest(dest); r.data.total=size;
     await fs.rename(stage, finalDir);
@@ -335,8 +349,8 @@ export class Archive {
     if(!local) conflict('Der er ikke et kontrolleret resultat at sende tilbage.');
     const ext=path.extname(local);
     const remoteResult=r.data.remotePath.replace(/\.[^.]+$/, ext);
-    r.data.phase='Sender til '+place.name; this.update(r.id,'uploading',r.data);
-    await this.places.copyFrom(place, remoteResult, local, this.controller.signal);
+    r.data.bytes=0; r.data.total=r.data.total||(await fs.stat(local)).size; r.data.phase='Sender til '+place.name; this.update(r.id,'uploading',r.data);
+    await this.places.copyFrom(place, remoteResult, local, this.controller.signal, stats => this.noteTransfer(r, 'uploading', stats));
     if(remoteResult!==r.data.remotePath) await this.places.removeFile(place, r.data.remotePath, this.controller.signal).catch(()=>{});
     this.update(r.id,'sent',{...r.data,phase:'Sendt til '+place.name,error:null,speed:0});
   }

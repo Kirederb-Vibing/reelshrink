@@ -7,7 +7,7 @@ import { settings } from '../app/config.mjs';
 import { failureKind, transferRetry } from '../app/engine.mjs';
 import { planEncode } from '../app/hardware.mjs';
 import { encodeArgs } from '../app/media.mjs';
-import { Places, parsePlacePath } from '../app/places.mjs';
+import { Places, parsePlacePath, parseRcloneStats } from '../app/places.mjs';
 import { Store } from '../app/store.mjs';
 
 test('existing profiles stay valid and gain the new encoding fields', () => {
@@ -64,4 +64,14 @@ test('a storage place stores the secret outside the public view', () => {
   assert.equal(sftp.config.path, '/srv/storage/media/movies');
   assert.equal(places.remote(places.get(sftp.id)), `${sftp.id}:/srv/storage/media/movies`);
   store.close();
+});
+
+test('rclone transfer stats become bytes, total and speed', () => {
+  const text = parseRcloneStats('Transferred:   10.5 MiB / 1.5 GiB, 1%, 8.5 MiB/s, ETA 2m');
+  assert.equal(text.bytes, 10.5 * 1024 ** 2);
+  assert.equal(text.total, 1.5 * 1024 ** 3);
+  assert.equal(text.speed, 8.5 * 1024 ** 2);
+  const json = parseRcloneStats('{"level":"info","msg":"stats","stats":{"bytes":4096,"totalBytes":8192,"speed":100}}');
+  assert.deepEqual(json, { bytes: 4096, total: 8192, speed: 100 });
+  assert.equal(parseRcloneStats('directory not found'), null);
 });

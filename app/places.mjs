@@ -18,19 +18,62 @@ function obscure(secret) {
   });
 }
 
-function rclone(configFile, args, { signal } = {}) {
+const unitBytes = unit => {
+  const name = String(unit || 'B').toLowerCase();
+  const exp = { b: 0, k: 1, m: 2, g: 3, t: 4 }[name[0]] ?? 0;
+  return 1024 ** exp;
+};
+
+export function parseRcloneStats(line) {
+  const start = String(line || '').indexOf('{');
+  if (start >= 0) {
+    try {
+      const stats = JSON.parse(line.slice(start)).stats;
+      if (stats && Number.isFinite(stats.bytes)) return { bytes: stats.bytes, total: stats.totalBytes || 0, speed: stats.speed || 0 };
+    } catch { /* plain-text stats line */ }
+  }
+  const match = /Transferred:\s+([\d.]+)\s*([KMGT]?i?B)\s*\/\s*([\d.]+)\s*([KMGT]?i?B),\s*[\d.]+%,\s*([\d.]+)\s*([KMGT]?i?B)\/s/i.exec(line || '');
+  if (!match) return null;
+  return { bytes: Number(match[1]) * unitBytes(match[2]), total: Number(match[3]) * unitBytes(match[4]), speed: Number(match[5]) * unitBytes(match[6]) };
+}
+
+function rcloneMessage(err, code) {
+  const text = (err || `rclone fejlede (${code})`).trim();
+  const messages = [];
+  for (const line of text.split('\n')) {
+    const start = line.indexOf('{');
+    if (start < 0) { if (line.trim()) messages.push(line.trim()); continue; }
+    try {
+      const msg = JSON.parse(line.slice(start)).msg;
+      if (msg) messages.push(String(msg).trim());
+    } catch { messages.push(line.trim()); }
+  }
+  return messages.filter(Boolean).slice(-4).join('\n') || text;
+}
+
+function rclone(configFile, args, { signal, onStats } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn('rclone', ['--config', configFile, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '', err = '';
+    let out = '', err = '', pending = '';
     const stop = () => child.kill('SIGTERM');
+    const take = chunk => {
+      const lines = (pending + chunk).split(/\r?\n/);
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        err = (err + line + '\n').slice(-4000);
+        const stats = onStats ? parseRcloneStats(line) : null;
+        if (stats) onStats(stats);
+      }
+    };
     signal?.addEventListener('abort', stop, { once: true });
     child.stdout.on('data', c => { out += c; });
-    child.stderr.on('data', c => { err = (err + c).slice(-4000); });
+    child.stderr.on('data', c => take(String(c)));
     child.on('error', error => { signal?.removeEventListener('abort', stop); reject(error.code === 'ENOENT' ? new Error('rclone mangler i containeren. Genbyg imaget for at bruge SMB, SFTP og S3.') : error); });
     child.on('close', code => {
       signal?.removeEventListener('abort', stop);
+      if (pending) take(pending + '\n');
       if (code === 0) resolve(out);
-      else reject(new Error((err || `rclone fejlede (${code})`).trim()));
+      else reject(new Error(rcloneMessage(err, code)));
     });
   });
 }
@@ -168,14 +211,30 @@ export class Places {
     }
     return videos;
   }
-  async copyTo(row, rel, dest, signal) {
+  transferArgs() {
+    return ['--inplace', '--multi-thread-streams', '1', '--stats', '1s', '--stats-one-line', '--use-json-log', '--contimeout', '20s', '--timeout', '6h', '--retries', '3'];
+  }
+  async copyTo(row, rel, dest, signal, onProgress) {
     await this.writeConfig();
     await fs.mkdir(path.dirname(dest), { recursive: true });
-    await rclone(this.file, ['copyto', this.remote(row, rel), dest, '--contimeout', '20s', '--timeout', '6h', '--retries', '3'], { signal });
+    let statsAt = 0;
+    const report = stats => { statsAt = Date.now(); onProgress?.(stats); };
+    const timer = onProgress && setInterval(() => {
+      if (Date.now() - statsAt < 2000) return;
+      fs.stat(dest).then(stat => {
+        const allocated = stat.blocks ? stat.blocks * 512 : stat.size;
+        const bytes = allocated > 0 && allocated + 4096 < stat.size ? allocated : stat.size;
+        if (bytes) onProgress({ bytes, total: 0, speed: 0 });
+      }).catch(() => {});
+    }, 500);
+    timer?.unref?.();
+    try {
+      await rclone(this.file, ['copyto', this.remote(row, rel), dest, ...this.transferArgs()], { signal, onStats: onProgress ? report : undefined });
+    } finally { clearInterval(timer); }
   }
-  async copyFrom(row, rel, source, signal) {
+  async copyFrom(row, rel, source, signal, onProgress) {
     await this.writeConfig();
-    await rclone(this.file, ['copyto', source, this.remote(row, rel), '--contimeout', '20s', '--timeout', '6h', '--retries', '3'], { signal });
+    await rclone(this.file, ['copyto', source, this.remote(row, rel), ...this.transferArgs()], { signal, onStats: onProgress });
   }
   async removeFile(row, rel, signal) {
     await this.writeConfig();
