@@ -15,7 +15,7 @@ export function transferRetry(data) {
 export function failureKind(error) {
   const message = error?.message || '';
   if (/Annulleret|Afbrudt af bruger/.test(message)) return 'cancel';
-  if (/ændret|Outputkontrol|ikke mindre|Ugyldig|Atmos|HDR|Interlaced|undertekst|videospor|varighed|For lidt|plads|Checksum|allerede|symlink|monteret/.test(message)) return 'permanent';
+  if (/ændret|Outputkontrol|ikke mindre|Ugyldig|Atmos|HDR|Interlaced|undertekst|videospor|varighed|For lidt|plads|Checksum|allerede|symlink|monteret|unknown flag/.test(message)) return 'permanent';
   if (['EIO','ETIMEDOUT','ENOTCONN','ESTALE','EAGAIN','ECONNRESET','ENETUNREACH'].includes(error?.code) || /gik i stå|FFmpeg|rclone|CUDA|nvenc|qsv|VAAPI|device busy|forbindelse/i.test(message)) return 'transient';
   return 'permanent';
 }
