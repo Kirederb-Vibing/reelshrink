@@ -6,6 +6,18 @@ import { spawn } from 'node:child_process';
 const TYPES = ['smb', 'sftp', 's3'];
 const secretKeys = { smb: 'pass', sftp: 'pass', s3: 'secret_access_key' };
 
+function obscure(secret) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('rclone', ['obscure', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '', err = '';
+    child.stdout.on('data', chunk => { out += chunk; });
+    child.stderr.on('data', chunk => { err = (err + chunk).slice(-2000); });
+    child.on('error', error => reject(error.code === 'ENOENT' ? new Error('rclone mangler i containeren. Genbyg imaget for at bruge SMB, SFTP og S3.') : error));
+    child.on('close', code => code === 0 ? resolve(out.trim()) : reject(new Error((err || `rclone obscure fejlede (${code})`).trim())));
+    child.stdin.end(secret);
+  });
+}
+
 function rclone(configFile, args, { signal } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn('rclone', ['--config', configFile, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -96,10 +108,11 @@ export class Places {
     const lines = [];
     for (const row of this.store.all('SELECT * FROM places WHERE enabled=1')) {
       const config = JSON.parse(row.config);
+      const secret = row.secret ? await obscure(row.secret) : '';
       lines.push(`[${row.id}]`, `type = ${row.type === 'smb' ? 'smb' : row.type}`);
-      if (row.type === 'smb') lines.push(`host = ${config.host}`, `user = ${config.user || 'guest'}`, `pass = ${row.secret}`, config.domain ? `domain = ${config.domain}` : '');
-      if (row.type === 'sftp') lines.push(`host = ${config.host}`, `port = ${config.port || 22}`, `user = ${config.user}`, `pass = ${row.secret}`);
-      if (row.type === 's3') lines.push(`provider = Other`, `endpoint = ${config.endpoint}`, `access_key_id = ${config.access_key_id}`, `secret_access_key = ${row.secret}`, `region = ${config.region || 'us-east-1'}`, `force_path_style = true`);
+      if (row.type === 'smb') lines.push(`host = ${config.host}`, `user = ${config.user || 'guest'}`, `pass = ${secret}`, config.domain ? `domain = ${config.domain}` : '');
+      if (row.type === 'sftp') lines.push(`host = ${config.host}`, `port = ${config.port || 22}`, `user = ${config.user}`, `pass = ${secret}`);
+      if (row.type === 's3') lines.push(`provider = Other`, `endpoint = ${config.endpoint}`, `access_key_id = ${config.access_key_id}`, `secret_access_key = ${secret}`, `region = ${config.region || 'us-east-1'}`, `force_path_style = true`);
     }
     await fs.writeFile(this.file, lines.filter(Boolean).join('\n') + '\n', { mode: 0o600 });
   }
