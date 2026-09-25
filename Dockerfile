@@ -11,7 +11,7 @@ LABEL org.opencontainers.image.title="ReelShrink" \
       org.opencontainers.image.licenses="MIT"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg rclone ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg mesa-va-drivers rclone ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app /config /output /media /incoming \
     && chown -R node:node /app /config /output
