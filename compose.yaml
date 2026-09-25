@@ -1,3 +1,6 @@
+# Klar til kørsel: docker compose up -d
+# Opretter ./config, ./work og medie-mapper, hvis de mangler.
+# SMB, SFTP og S3 tilføjes i GUI'en og kræver ikke mounts her.
 services:
   reelshrink:
     image: ${REELSHRINK_IMAGE:-ghcr.io/kirederb-vibing/reelshrink:latest}
@@ -16,30 +19,32 @@ services:
       MIN_FREE_GB: ${MIN_FREE_GB:-2}
       AUTH_USERNAME: ${AUTH_USERNAME:-}
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      WORK_ROOT: /work
+      WORK_DRIVE_TYPE: local
+      MEDIA_ROOTS: /media/movies:/media/series
+      MEDIA_DRIVE_TYPES: ${MOVIES_DRIVE_TYPE:-local}:${SERIES_DRIVE_TYPE:-local}
     volumes:
       - type: bind
         source: ${CONFIG_PATH:-./config}
         target: /config
         bind:
-          create_host_path: false
+          create_host_path: true
+      - type: bind
+        source: ${WORK_PATH:-./work}
+        target: /work
+        bind:
+          create_host_path: true
       - type: bind
         source: ${MOVIES_PATH:-./media/movies}
         target: /media/movies
-        read_only: true
         bind:
-          create_host_path: false
+          create_host_path: true
       - type: bind
         source: ${SERIES_PATH:-./media/series}
         target: /media/series
-        read_only: true
         bind:
-          create_host_path: false
-      - type: bind
-        source: ${OUTPUT_PATH:-./output}
-        target: /output
-        bind:
-          create_host_path: false
-    # Valgfri GPU. NVIDIA kræver nvidia-container-runtime. Intel/AMD kræver render-enheden.
+          create_host_path: true
+    # GPU: fjern kommentaren, hvis maskinen har /dev/dri (Intel/AMD) eller NVIDIA-runtime.
     # devices:
     #   - /dev/dri:/dev/dri
     security_opt:
