@@ -91,7 +91,15 @@ export function run(command, args, {signal, onProgress, timeout = 0, stallMs = 0
     child.on('close', code => {
       cleanup();
       if (code === 0 && !terminated) resolve({out,log});
-      else reject(Object.assign(new Error(terminated === 'stall' ? 'Encodingen gik i stå uden fremdrift.' : terminated ? 'Afbrudt eller tidsgrænse overskredet.' : `FFmpeg/FFprobe fejlede (kode ${code}). Se jobloggen.`), {log, transient: Boolean(terminated) || code === 255}));
+      else {
+        const tail = log.trim().split('\n').filter(Boolean).slice(-2).join(' ').replace(/\s+/g,' ').slice(-350);
+        const killed = code == null && !terminated;
+        const message = terminated === 'stall' ? 'Encodingen gik i stå uden fremdrift.'
+          : terminated ? 'Afbrudt eller tidsgrænse overskredet.'
+          : killed ? 'FFmpeg blev stoppet af systemet, ofte fordi hukommelsen slap op.'
+          : `FFmpeg/FFprobe fejlede (kode ${code}).${tail ? ' '+tail : ' Se jobloggen.'}`;
+        reject(Object.assign(new Error(message), {log, transient: terminated === 'stall' || terminated === 'timeout' || killed}));
+      }
     });
   });
 }
@@ -128,30 +136,35 @@ export function encodeArgs(source, media, subtitles, output, options, c, plan) {
   const crf = CRF[options.codec][options.quality];
   const device = plan?.device || 'cpu';
   const encoder = plan?.encoder || (options.codec === 'h264' ? 'libx264' : options.codec === 'av1' ? 'libsvtav1' : 'libx265');
+  const vaapi = encoder.endsWith('_vaapi');
+  const is10 = options.pixFmt === 'auto' ? (/(?:p|le|be)10|p10|p12/.test(media.video.pix_fmt || '') || Number(media.video.bits_per_raw_sample) > 8) : options.pixFmt.includes('10');
   const hw = [];
   const filters = videoFilters(options, media);
   if (!filters.length && device === 'nvidia') hw.push('-hwaccel','cuda');
-  if (!filters.length && device === 'vaapi' && c.hardware?.render) hw.push('-hwaccel','vaapi','-vaapi_device',c.hardware.render);
   if (!filters.length && device === 'intel') hw.push('-hwaccel','qsv');
+  if (vaapi && c.hardware?.render) {
+    hw.push('-vaapi_device', c.hardware.render);
+    filters.push(`format=${options.tonemap === 'sdr' || !is10 ? 'nv12' : 'p010le'}`, 'hwupload');
+  }
   const args = ['-hide_banner','-nostdin','-n','-xerror','-loglevel','warning','-stats_period','1','-progress','pipe:1','-threads',String(c.threads),'-protocol_whitelist','file,pipe',...hw,'-i',source];
   for (const s of subtitles) args.push('-protocol_whitelist','file,pipe','-sub_charenc','UTF-8','-i',s.path);
   args.push('-map',`0:${media.video.index}`,'-map','0:a?','-map','0:s?','-map','0:t?');
   for (let i=0;i<subtitles.length;i++) args.push('-map',`${i+1}:s:0`);
   args.push('-map_metadata','0','-map_chapters','0','-c','copy','-c:v',encoder,'-threads',String(c.threads));
   const quality = options.rateControl || 'crf';
-  const nvenc = encoder.endsWith('_nvenc'), qsv = encoder.endsWith('_qsv'), vaapi = encoder.endsWith('_vaapi');
+  const nvenc = encoder.endsWith('_nvenc'), qsv = encoder.endsWith('_qsv');
   const preset = nvenc && !/^p[1-7]$/.test(options.preset) ? ({fast:'p4',medium:'p5',slow:'p6'}[options.preset] || 'p5') : options.preset;
   if (quality === 'vbr' || quality === 'cbr') {
     const rate = `${options.videoBitrate || 4000}k`;
     args.push('-b:v', rate, '-maxrate', `${options.maxrate || options.videoBitrate || 4000}k`, '-bufsize', `${options.bufsize || (options.videoBitrate || 4000) * 2}k`);
     if (quality === 'cbr') args.push('-minrate', rate);
+    if (vaapi) args.push('-rc_mode', quality === 'cbr' ? 'CBR' : 'VBR');
   } else if (nvenc) args.push(quality === 'cqp' ? '-qp' : '-cq', String(crf), '-rc', quality === 'cqp' ? 'constqp' : 'vbr');
   else if (qsv) args.push('-global_quality', String(crf));
-  else if (vaapi) args.push('-qp', String(crf));
-  else if (encoder === 'libsvtav1') args.push('-crf', String(crf), '-preset', String({ultrafast:12,superfast:11,veryfast:10,faster:9,fast:8,medium:6,slow:4,slower:2,veryslow:1}[options.preset] ?? 6));
+  else if (vaapi) args.push('-rc_mode', 'CQP', '-qp', String(crf));
+  else if (encoder === 'libsvtav1') args.push('-crf', String(crf), '-preset', String(Math.min(8, {ultrafast:8,superfast:8,veryfast:8,faster:8,fast:8,medium:6,slow:4,slower:2,veryslow:1}[options.preset] ?? 6)));
   else args.push(quality === 'cqp' ? '-qp' : '-crf', String(crf), '-preset', preset);
-  if (nvenc || qsv || vaapi) args.push('-preset', preset);
-  const is10 = options.pixFmt === 'auto' ? (/(?:p|le|be)10|p10|p12/.test(media.video.pix_fmt || '') || Number(media.video.bits_per_raw_sample) > 8) : options.pixFmt.includes('10');
+  if (nvenc || qsv) args.push('-preset', preset);
   const pix = options.pixFmt === 'auto' ? (options.tonemap === 'sdr' ? 'yuv420p' : (is10 ? 'yuv420p10le' : 'yuv420p')) : options.pixFmt;
   if (!vaapi) args.push('-pix_fmt', pix);
   args.push('-filter_threads', String(c.threads));
@@ -166,8 +179,15 @@ export function encodeArgs(source, media, subtitles, output, options, c, plan) {
   if (options.allowHDR && options.tonemap !== 'sdr' && media.video.color_transfer === 'smpte2084' && nvenc) args.push('-hdr10', '1');
   // Preserve colour signalling. HDR override does not promise preservation of
   // mastering metadata or dynamic Dolby Vision metadata and does not tone map.
+  const colorValues = {
+    color_primaries: /^(bt709|bt470m|bt470bg|smpte170m|smpte240m|film|bt2020|smpte428|smpte428_1|smpte431|smpte432|jedec-p22|ebu3213)$/,
+    color_transfer: /^(bt709|gamma22|gamma28|smpte170m|smpte240m|linear|log100|log316|log|log_sqrt|iec61966-2-4|iec61966_2_4|bt1361e|bt1361|iec61966-2-1|iec61966_2_1|bt2020-10|bt2020-12|bt2020_10bit|bt2020_12bit|smpte2084|smpte428|smpte428_1|arib-std-b67)$/,
+    color_space: /^(rgb|bt709|fcc|bt470bg|smpte170m|smpte240m|ycgco|ycocg|bt2020nc|bt2020c|bt2020_ncl|bt2020_cl|smpte2085|chroma-derived-nc|chroma-derived-c|ictcp)$/,
+    color_range: /^(tv|pc|mpeg|jpeg|limited|full)$/,
+  };
   for (const [field,flag] of [['color_primaries','-color_primaries'],['color_transfer','-color_trc'],['color_space','-colorspace'],['color_range','-color_range']]) {
-    if (media.video[field] && media.video[field] !== 'unknown') args.push(flag,media.video[field]);
+    const value = media.video[field];
+    if (colorValues[field].test(value || '')) args.push(flag, value);
   }
   if (options.audio === 'aac_stereo') args.push('-c:a','aac','-ac','2','-b:a',`${options.audioBitrate || 192}k`);
   else if (options.audio !== 'copy') {
