@@ -7,6 +7,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { inside, settings, FILTER_DEFAULTS, filterReason } from './config.mjs';
 import { bundleFor, discover, probe } from './media.mjs';
 import { digest, fingerprint } from './returner.mjs';
+import { failureKind, transferRetry } from './engine.mjs';
+import { parsePlacePath } from './places.mjs';
 
 const extensions = new Set(['.mkv','.mp4','.m4v','.avi','.mov','.ts','.m2ts','.webm']);
 const exists = async p => { try { await fs.lstat(p); return true; } catch(e) { if(e.code==='ENOENT') return false; throw e; } };
@@ -134,6 +136,28 @@ export class Archive {
         this.store.run('DELETE FROM archive_candidates WHERE drive_path=? AND scan_id<>?',drive.path,scanId);
       } catch(e) {errors.push(path.basename(drive.path)+': '+e.message);}
     }
+    if(this.places) {
+      for(const place of this.places.list().filter(p=>p.enabled)) {
+        const scanId=randomUUID();this.libraryProgress.drive=place.name;
+        try {
+          const videos=await this.places.listVideos(this.places.get(place.id), this.libraryScanController.signal);
+          this.libraryProgress.found+=videos.length;
+          for(const source of videos) {
+            let state='eligible',reason=filterReason(filters,source.size);
+            if(reason) state='skipped';
+            this.store.run(`INSERT INTO archive_candidates
+              (path,drive_path,relative,size,mtime_ms,duration,height,codec,state,reason,scan_id,updated)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+              ON CONFLICT(path) DO UPDATE SET drive_path=excluded.drive_path,relative=excluded.relative,size=excluded.size,
+              mtime_ms=excluded.mtime_ms,duration=excluded.duration,height=excluded.height,codec=excluded.codec,
+              state=excluded.state,reason=excluded.reason,scan_id=excluded.scan_id,updated=excluded.updated`,
+              source.path, 'place:'+place.id, source.relative, Number(source.size), Number(source.mtimeMs), null, null, null, state, reason, scanId, Date.now());
+            this.libraryProgress.checked++;if(state==='eligible')this.libraryProgress.eligible++;
+          }
+          this.store.run('DELETE FROM archive_candidates WHERE drive_path=? AND scan_id<>?','place:'+place.id,scanId);
+        } catch(e) { errors.push(place.name+': '+e.message); }
+      }
+    }
     this.libraryProgress.drive=null;
     if(errors.length) throw new Error(errors.join(' · '));
   }
@@ -165,6 +189,8 @@ export class Archive {
     this.enabled();this.ids(paths);
     const rows=[];
     for(const source of paths) {
+      const remote=parsePlacePath(source);
+      if(remote) { rows.push(await this.placeRow(source, remote)); continue; }
       const drive=this.drive(source);await this.allowed(source,drive.path);
       if(!extensions.has(path.extname(source).toLowerCase())) conflict('Vælg en film eller et afsnit.');
       if(this.store.get('SELECT id FROM archive_items WHERE source=?',source)) conflict('Emnet findes allerede i arbejdsarkivets historik. Brug Prøv igen ved fejl.');
@@ -226,10 +252,12 @@ export class Archive {
   async stop() { this.stopping=true;clearInterval(this.timer);this.controller.abort();this.libraryScanController.abort();await Promise.allSettled([this.workerPromise,this.libraryScanPromise]); }
   tick() {
     if(!this.c.workRoot||this.active||this.stopping||this.store.globallyPaused()) return;
-    const r=this.list().reverse().find(r=>['queued_download','queued_upload'].includes(r.state));if(!r)return;
+    const r=this.list().reverse().find(r=>['queued_download','queued_upload'].includes(r.state)&&!(r.data.nextRetry>Date.now()));if(!r)return;
     this.active=r.id;
     this.workerPromise=(r.state==='queued_download'?this.download(r):this.upload(r)).catch(e=>{
-      const latest=this.row(r.id);this.update(r.id,r.state==='queued_download'?'failed_download':'attention',{...latest.data,error:e.message,phase:'Stoppet – gennemgå og prøv igen'});
+      const latest=this.row(r.id);const again=failureKind(e)==='transient'?transferRetry(latest.data):null;
+      if(again) this.update(r.id,r.state,{...latest.data,attempts:again.attempts,nextRetry:again.nextRetry,error:`Forsøg ${again.attempts} af 5 om ${Math.round(again.wait/60000)} min. ${e.message}`,phase:'Prøver igen'});
+      else this.update(r.id,r.state==='queued_download'?'failed_download':'attention',{...latest.data,nextRetry:null,error:e.message,phase:'Stoppet – gennemgå og prøv igen'});
     }).finally(()=>{this.active=null;this.workerPromise=null;});
   }
   async origin(r) {
@@ -249,7 +277,15 @@ export class Archive {
     await pipeline(createReadStream(source,{flags:constants.O_RDONLY|constants.O_NOFOLLOW}),meter,createWriteStream(dest,{flags:'wx'}),{signal:this.controller.signal});
     await this.sync(dest);this.update(r.id,state,r.data);return hash.digest('hex');
   }
+  async placeRow(source, remote) {
+    const place=this.places.get(remote.id);
+    if(this.store.get('SELECT id FROM archive_items WHERE source=?',source)) conflict('Emnet findes allerede i arbejdsarkivets historik. Brug Prøv igen ved fejl.');
+    const id=randomUUID(), name=path.basename(remote.rel), local_source=path.join(this.c.mediaRoots[0],id,name);
+    const config=JSON.parse(place.config);
+    return {id,source,local_source,data:{placeId:place.id,remotePath:remote.rel,originalDir:source.slice(0, source.lastIndexOf('/')),drive:{type:place.type,name:place.name},directoryId:'place:'+place.id,driveId:'place:'+place.id,manifest:[{source,relative:name,stamp:`remote:${config.host||config.endpoint}:${remote.rel}`,size:0}],phase:'I kø til hentning',bytes:0,total:0,error:null}};
+  }
   async download(r) {
+    if(r.data.placeId) return this.downloadPlace(r);
     await this.origin(r);
     const finalDir=path.dirname(r.local_source),stage=path.join(this.c.workRoot,'.archive-'+r.id);
     if(await exists(finalDir)) {
@@ -278,7 +314,34 @@ export class Archive {
     await fs.rename(stage,finalDir);await this.sync(this.c.mediaRoots[0]);
     this.update(r.id,'local',{...r.data,phase:'Hentet – klar til lokal encoding',error:null,speed:0});this.engine.scan();
   }
+  async downloadPlace(r) {
+    const place=this.places.get(r.data.placeId);
+    const finalDir=path.dirname(r.local_source),stage=path.join(this.c.workRoot,'.archive-'+r.id);
+    if(await exists(finalDir)) { this.update(r.id,'local',{...r.data,phase:'Hentet – klar til lokal encoding',error:null}); return; }
+    if(await exists(stage)) await fs.rm(stage,{recursive:true});
+    await fs.mkdir(stage,{recursive:true});
+    const dest=path.join(stage,path.basename(r.local_source));
+    r.data.phase='Henter fra '+place.name; this.update(r.id,'downloading',r.data);
+    await this.places.copyTo(place, r.data.remotePath, dest, this.controller.signal);
+    const size=(await fs.stat(dest)).size;
+    r.data.manifest[0].size=size; r.data.manifest[0].hash=await digest(dest); r.data.total=size;
+    await fs.rename(stage, finalDir);
+    this.update(r.id,'local',{...r.data,phase:'Hentet – klar til lokal encoding',error:null,speed:0});
+    this.engine.scan();
+  }
+  async uploadPlace(r) {
+    const place=this.places.get(r.data.placeId);
+    const local=r.data.result||this.result(r)?.details?.target;
+    if(!local) conflict('Der er ikke et kontrolleret resultat at sende tilbage.');
+    const ext=path.extname(local);
+    const remoteResult=r.data.remotePath.replace(/\.[^.]+$/, ext);
+    r.data.phase='Sender til '+place.name; this.update(r.id,'uploading',r.data);
+    await this.places.copyFrom(place, remoteResult, local, this.controller.signal);
+    if(remoteResult!==r.data.remotePath) await this.places.removeFile(place, r.data.remotePath, this.controller.signal).catch(()=>{});
+    this.update(r.id,'sent',{...r.data,phase:'Sendt til '+place.name,error:null,speed:0});
+  }
   async upload(r) {
+    if(r.data.placeId) return this.uploadPlace(r);
     if(r.data.unsafeUpload) return this.unsafeUpload(r);
     await this.origin(r);
     const d=r.data,localDir=path.dirname(r.local_source);

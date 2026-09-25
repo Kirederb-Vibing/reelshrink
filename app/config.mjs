@@ -62,17 +62,37 @@ export function mediaPath(candidate, c) {
   return real;
 }
 export const FILTER_DEFAULTS = Object.freeze({ minSizeGB: 0, maxSizeGB: 0, minDurationMinutes: 0, minSourceHeight: 0, skipCodecs: Object.freeze([]) });
-export const DEFAULT_SETTINGS = Object.freeze({ codec: 'hevc', quality: 'balanced', preset: 'medium', maxHeight: 0, audio: 'copy', onlySmaller: true, copySidecars: true, allowHDR:false, allowAtmosLoss:false, ...FILTER_DEFAULTS });
+export const ENCODE_DEFAULTS = Object.freeze({
+  codec: 'hevc', quality: 'balanced', preset: 'medium', maxHeight: 0, audio: 'copy',
+  device: 'auto', rateControl: 'crf', videoBitrate: 0, maxrate: 0, bufsize: 0,
+  tune: '', profile: '', level: '', pixFmt: 'auto', keyint: 0, twoPass: false,
+  deinterlace: false, tonemap: 'off', fps: 0, crop: '', audioBitrate: 192, audioChannels: 0,
+  encoderParams: '',
+});
+export const DEFAULT_SETTINGS = Object.freeze({ ...ENCODE_DEFAULTS, onlySmaller: true, copySidecars: true, allowHDR: false, allowAtmosLoss: false, ...FILTER_DEFAULTS });
+const PRESETS = ['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow','p1','p2','p3','p4','p5','p6','p7'];
 export function settings(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Ugyldige indstillinger.');
   const s = { ...DEFAULT_SETTINGS, ...input };
-  const choices = { codec: ['hevc', 'h264'], quality: ['high', 'balanced', 'small'], preset: ['fast', 'medium', 'slow'], maxHeight: [0, 1080, 720], audio: ['copy', 'aac_stereo'] };
+  const choices = {
+    codec: ['hevc', 'h264', 'av1'], quality: ['high', 'balanced', 'small'], preset: PRESETS,
+    device: ['auto', 'cpu', 'nvidia', 'intel', 'vaapi'],
+    rateControl: ['crf', 'cqp', 'vbr', 'cbr'], audio: ['copy', 'aac_stereo', 'aac', 'opus', 'ac3', 'eac3', 'flac'],
+    tonemap: ['off', 'sdr'], pixFmt: ['auto', 'yuv420p', 'yuv420p10le', 'yuv422p', 'yuv422p10le', 'yuv444p'],
+  };
   for (const [k, values] of Object.entries(choices)) if (!values.includes(s[k])) throw new Error(`Ugyldig indstilling: ${k}`);
-  for (const k of ['onlySmaller', 'copySidecars', 'allowHDR', 'allowAtmosLoss']) if (typeof s[k] !== 'boolean') throw new Error(`Ugyldig indstilling: ${k}`);
-  for (const [k,max] of Object.entries({ minSizeGB: 100000, maxSizeGB: 100000, minDurationMinutes: 100000, minSourceHeight: 16384 })) {
+  if (!Number.isInteger(s.maxHeight) || s.maxHeight < 0 || s.maxHeight > 7680) throw new Error('Ugyldig indstilling: maxHeight');
+  for (const k of ['onlySmaller', 'copySidecars', 'allowHDR', 'allowAtmosLoss', 'twoPass', 'deinterlace']) if (typeof s[k] !== 'boolean') throw new Error(`Ugyldig indstilling: ${k}`);
+  for (const [k, max] of Object.entries({ minSizeGB: 100000, maxSizeGB: 100000, minDurationMinutes: 100000, minSourceHeight: 16384, videoBitrate: 200000, maxrate: 200000, bufsize: 400000, keyint: 1000, fps: 120, audioBitrate: 1536, audioChannels: 16 })) {
     if (typeof s[k] !== 'number' || !Number.isFinite(s[k]) || s[k] < 0 || s[k] > max) throw new Error(`Ugyldigt filter: ${k}`);
   }
-  if (!Number.isInteger(s.minSourceHeight)) throw new Error('Minimumhøjden skal være et helt antal pixels.');
+  for (const k of ['tune', 'profile', 'level', 'crop', 'encoderParams']) if (typeof s[k] !== 'string' || s[k].length > 200) throw new Error(`Ugyldig indstilling: ${k}`);
+  if (s.crop && !/^\d{1,5}:\d{1,5}:\d{1,5}:\d{1,5}$/.test(s.crop)) throw new Error('Beskæring skal være bredde:højde:x:y.');
+  if (s.encoderParams && !/^[\w.=:+-]{1,200}$/.test(s.encoderParams)) throw new Error('Encoder-parametre må kun være nøgle=værdi adskilt med :.');
+  if (s.tune && !/^[\w.-]{1,40}$/.test(s.tune)) throw new Error('Ugyldig tune.');
+  if (s.profile && !/^[\w.-]{1,40}$/.test(s.profile)) throw new Error('Ugyldig profil.');
+  if (s.level && !/^[\w.@]{1,20}$/.test(s.level)) throw new Error('Ugyldigt level.');
+  if (!Number.isInteger(s.minSourceHeight) || !Number.isInteger(s.maxHeight) || !Number.isInteger(s.fps) || !Number.isInteger(s.keyint) || !Number.isInteger(s.audioChannels)) throw new Error('Højde, fps, keyint og kanaler skal være hele tal.');
   if (s.maxSizeGB && s.minSizeGB > s.maxSizeGB) throw new Error('Minimum filstørrelse må ikke overstige maksimum.');
   if (!Array.isArray(s.skipCodecs) || s.skipCodecs.length > 3 || s.skipCodecs.some(c => !['hevc','av1','h264'].includes(c))) throw new Error('Ugyldigt codec-filter.');
   s.skipCodecs = [...new Set(s.skipCodecs)];

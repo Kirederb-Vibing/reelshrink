@@ -3,12 +3,28 @@ import path from 'node:path';
 import { constants } from 'node:fs';
 import { inside, filterReason, processingPath, settings } from './config.mjs';
 import { discover, bundleFor, signatureFor, assertBundleAllowed, probe, hdrReason, atmosReason, encodeArgs, prepareSubtitles, validateOutput, run } from './media.mjs';
+import { planEncode } from './hardware.mjs';
+
+const RETRY_MS = [60_000, 300_000, 900_000, 900_000, 900_000];
+export function transferRetry(data) {
+  const attempts = (data?.attempts || 0) + 1;
+  if (attempts > 5) return null;
+  const wait = RETRY_MS[Math.min(attempts - 1, RETRY_MS.length - 1)];
+  return { attempts, nextRetry: Date.now() + wait, wait };
+}
+export function failureKind(error) {
+  const message = error?.message || '';
+  if (/Annulleret|Afbrudt af bruger/.test(message)) return 'cancel';
+  if (/ændret|Outputkontrol|ikke mindre|Ugyldig|Atmos|HDR|Interlaced|undertekst|videospor|varighed|For lidt|plads|Checksum|allerede|symlink|monteret/.test(message)) return 'permanent';
+  if (['EIO','ETIMEDOUT','ENOTCONN','ESTALE','EAGAIN','ECONNRESET','ENETUNREACH'].includes(error?.code) || /gik i stå|FFmpeg|rclone|CUDA|nvenc|qsv|VAAPI|device busy|forbindelse/i.test(message)) return 'transient';
+  return 'permanent';
+}
 import { fingerprint, digest, sourceHeld } from './returner.mjs';
 
 export class Engine {
   constructor(c, store) {
     this.c=c; this.store=store; this.seen=new Map(); this.scanning=false; this.scanAgain=false;
-    this.stopping=false; this.active=null; this.workerPromise=null;
+    this.stopping=false; this.active=null; this.extra=null; this.workerPromise=null; this.holdReason=null;
     this.scanController=new AbortController();
   }
   async init() {
@@ -39,8 +55,8 @@ export class Engine {
   }
   async stop() {
     this.stopping=true; clearInterval(this.scanTimer); clearInterval(this.workerTimer);
-    this.scanController.abort(); this.active?.controller.abort();
-    await this.workerPromise;
+    this.scanController.abort(); this.active?.controller.abort(); this.extra?.controller.abort();
+    await Promise.allSettled([this.workerPromise, this.extraPromise]);
     while(this.scanning) await new Promise(r=>setTimeout(r,20));
   }
   async scan() {
@@ -93,16 +109,21 @@ export class Engine {
     }
   }
   tick() {
-    if(this.stopping || this.maintenance || this.store.globallyPaused() || this.active || this.store.paused()) return;
-    const row=this.store.all("SELECT j.id,j.source FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 ORDER BY j.created,j.id").find(j=>!sourceHeld(this.store,j.source));
+    if(this.stopping || this.maintenance || this.store.globallyPaused() || this.store.paused()) return;
+    const slots=this.c.hardware?.parallel ? 2 : 1;
+    if((this.active?1:0)+(this.extra?1:0) >= slots) return;
+    const busy=new Set([this.active?.id, this.extra?.id].filter(Boolean));
+    const row=this.store.all("SELECT j.id,j.source FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 AND (j.next_retry IS NULL OR j.next_retry<=?) ORDER BY j.created,j.id", Date.now()).find(j=>!busy.has(j.id) && !sourceHeld(this.store,j.source));
     if(!row) return;
     const controller=new AbortController();
-    this.active={id:row.id,controller};
+    const slot=this.active?'extra':'active';
+    this[slot]={id:row.id,controller};
     this.store.updateJob(row.id,{state:'running',error:null,progress:0,speed:null,eta:null});
-    this.workerPromise=this.process(this.store.job(row.id),controller.signal).catch(error=>{
+    const task=this.process(this.store.job(row.id),controller.signal).catch(error=>{
       console.error('Job failed',row.id,error.message);
       this.store.updateJob(row.id,{state:'failed',error:error.message});
-    }).finally(()=>{this.active=null;this.workerPromise=null;if(!this.stopping)setImmediate(()=>this.tick());});
+    }).finally(()=>{this[slot]=null;if(slot==='active')this.workerPromise=null;else this.extraPromise=null;if(!this.stopping)setImmediate(()=>this.tick());});
+    if(slot==='active') this.workerPromise=task; else this.extraPromise=task;
   }
   cancel(id) {
     const job=this.store.job(id);
@@ -139,6 +160,7 @@ export class Engine {
       if(reason) {this.store.updateJob(job.id,{state:'skipped',error:reason});return;}
       const disk=await fs.statfs(this.c.outputRoot);
       if(disk.bavail*disk.bsize < Math.max(this.c.minFreeBytes,job.input_bytes*1.1)) throw new Error('Der er for lidt ledig plads i outputmappen. Frigør plads, og prøv igen.');
+      this.holdReason=null;
       await fs.mkdir(stage,{recursive:false});
       const normalized=path.join(stage,'normalized'), payload=path.join(stage,'payload');
       await fs.mkdir(normalized); await fs.mkdir(payload);
@@ -147,8 +169,13 @@ export class Engine {
       const subtitles=await prepareSubtitles(job.bundle.subtitles,normalized);
       let time=0,speed=0,lastUpdate=0;
       const encodeStarted=Date.now();
-      const result=await run(this.c.ffmpeg,encodeArgs(job.source,media,subtitles,encoded,job.settings,this.c),{
-        signal,onProgress:(key,value)=>{
+      const plan=planEncode(job.settings,this.c.hardware);
+      if(plan.fallback) this.store.updateJob(job.id,{error:`GPU er ikke klar (${plan.tried.join(', ')}). Fortsætter på CPU med ${plan.encoder}.`});
+      const encodeOnce=(pass)=>{
+        const args=encodeArgs(job.source,media,subtitles,pass===1?path.join(stage,'null.mkv'):encoded,job.settings,this.c,plan);
+        if(job.settings.twoPass&&plan.device==='cpu') args.splice(-1,0,'-pass',String(pass),'-passlogfile',path.join(stage,'pass'));
+        return run(this.c.ffmpeg,args,{
+        signal,stallMs:10*60*1000,onProgress:(key,value)=>{
           if(key==='out_time_us') time=Math.max(0,Number(value)/1e6)||0;
           if(key==='speed') speed=parseFloat(value)||0;
           if(key==='progress' && Date.now()-lastUpdate>400) {
@@ -157,6 +184,9 @@ export class Engine {
           }
         }
       });
+      };
+      if(job.settings.twoPass && plan.device==='cpu' && ['libx264','libx265'].includes(plan.encoder)) await encodeOnce(1);
+      const result=await encodeOnce(2);
       this.work?.recordTiming?.(job.source,'encodingMs',Date.now()-encodeStarted);
       const checkStarted=Date.now();
       const outputMedia=await probe(encoded,this.c,signal);
@@ -203,8 +233,12 @@ export class Engine {
       this.work?.recordTiming?.(job.source,'checkMs',Date.now()-checkStarted);
       await this.work?.onCompleted({...this.store.job(job.id),verifiedStamp:await fingerprint(output)});
     } catch(error) {
-      const state=signal.aborted?(this.stopping?'queued':'cancelled'):'failed';
-      this.store.updateJob(job.id,{state,error:signal.aborted?(this.stopping?'Fortsætter fra begyndelsen efter genstart.':'Annulleret af bruger.'):error.message,log:error.log||null,speed:null,eta:null});
+      if(signal.aborted) {
+        this.store.updateJob(job.id,{state:this.stopping?'queued':'cancelled',error:this.stopping?'Fortsætter fra begyndelsen efter genstart.':'Annulleret af bruger.',log:error.log||null,speed:null,eta:null,next_retry:null});
+      } else if(failureKind(error)==='transient' && (job.attempts||0) < 5) {
+        const wait=RETRY_MS[Math.min(job.attempts||0, RETRY_MS.length-1)];
+        this.store.updateJob(job.id,{state:'queued',attempts:(job.attempts||0)+1,next_retry:Date.now()+wait,error:`Midlertidig fejl (forsøg ${(job.attempts||0)+1} af 5). Næste forsøg om ${Math.round(wait/60000)} min. ${error.message}`,log:error.log||null,speed:null,eta:null,progress:0});
+      } else this.store.updateJob(job.id,{state:'failed',error:error.message,log:error.log||null,speed:null,eta:null,next_retry:null});
     } finally {
       await fs.rm(stage,{recursive:true,force:true});
     }

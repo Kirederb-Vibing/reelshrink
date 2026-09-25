@@ -2,7 +2,7 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const stateNames={queued:'I kø',running:'Encoder',cancel_requested:'Annullerer',completed:'Færdig',skipped:'Sprunget over',failed:'Fejlet',cancelled:'Annulleret'};
 const qualityNames={high:'Høj kvalitet',balanced:'Balanceret',small:'Mindre fil'};
-const codecName=c=>c==='hevc'?'H.265':'H.264';
+const codecName=c=>c==='av1'?'AV1':c==='hevc'?'H.265':'H.264';
 const base=p=>String(p).split('/').pop();
 function bytes(n){if(n===null||n===undefined)return '—';if(n===0)return '0 B';const i=Math.min(4,Math.floor(Math.log(Math.max(1,n))/Math.log(1024)));return new Intl.NumberFormat('da-DK',{maximumFractionDigits:i?1:0}).format(n/1024**i)+' '+['B','KiB','MiB','GiB','TiB'][i];}
 function duration(n){if(!Number.isFinite(n))return 'Beregner…';if(n<60)return Math.ceil(n)+' sek.';if(n<3600)return Math.ceil(n/60)+' min.';return Math.floor(n/3600)+' t. '+Math.round(n%3600/60)+' min.';}
@@ -77,7 +77,8 @@ async function refresh(){
     $('connection-error').hidden=true;$('connection').textContent=status.scanning?'Scanner mapper…':status.paused?'Kø på pause':'Forbundet';$('connection').className='connection ok';
     $('version').textContent=system.version;$('pause').disabled=Boolean(status.globalPaused);$('pause').textContent=status.globalPaused?'Samlet stop aktivt':status.paused?'Genoptag kø':'Sæt kø på pause';
     $('saved').textContent=bytes(status.savedBytes);$('queued').textContent=status.counts.queued||0;$('completed').textContent=status.counts.completed||0;$('free').textContent=bytes(status.outputFreeBytes);$('output-root').textContent=system.outputRoot;
-    $('engine-info').textContent=`${system.workRoot?'Kun lokalt arbejdsarkiv · ':''}CPU-encoding · ${system.threads} tråde · MKV\nScan hvert ${system.scanInterval}. sekund`;
+    const gpu=Object.entries(system.devices||{}).filter(([k,v])=>k!=='cpu'&&v).map(([k])=>k).join(', ');
+    $('engine-info').textContent=`${system.workRoot?'Kun lokalt arbejdsarkiv · ':''}${gpu?gpu+' eller CPU':'CPU'} · ${system.threads} tråde · MKV\nFejl prøves igen automatisk · scan hvert ${system.scanInterval}. sekund`;
     renderActive();renderWatches();renderJobs(values[2]);
     if(detailId&&$('job-dialog').open)renderDetail(await api('/jobs/'+detailId));
   }catch(e){$('connection').textContent='Ingen forbindelse';$('connection').className='connection offline';error('Kunne ikke opdatere overblikket: '+e.message);}
@@ -86,7 +87,7 @@ async function refresh(){
 function openWatch(id){
   const w=watches.find(w=>w.id===id);$('watch-form').reset();$('watch-id').value=id||'';$('watch-name').value=w?.name||'';$('watch-path').value=w?.path||'';$('watch-path').readOnly=Boolean(w);$('browse-toggle').disabled=Boolean(w);
   $('watch-dialog-title').textContent=w?'Mappeindstillinger':'Tilføj en mappe';$('watch-save').textContent=w?'Gem indstillinger':'Start overvågning';$('settings-note').hidden=!w;$('apply-filters-label').hidden=!w;
-  if(w){const s=w.settings;for(const [id,key]of [['codec','codec'],['quality','quality'],['preset','preset'],['height','maxHeight'],['audio','audio']])$(id).value=s[key];$('smaller').checked=s.onlySmaller;$('sidecars').checked=s.copySidecars;}
+  if(w){const s=w.settings;for(const [id,key]of [['codec','codec'],['quality','quality'],['preset','preset'],['height','maxHeight'],['device','device'],['rate','rateControl'],['pix','pixFmt']])$(id).value=s[key];$('audio').value=s.audio==='copy'||s.audio==='aac_stereo'?s.audio:'copy';$('audio-mode').value=['aac','opus','ac3','eac3','flac'].includes(s.audio)?s.audio:'';$('vbitrate').value=s.videoBitrate||0;$('tune').value=s.tune||'';$('profile').value=s.profile||'';$('level').value=s.level||'';$('encoder-params').value=s.encoderParams||'';$('deinterlace').checked=s.deinterlace;$('tonemap').checked=s.tonemap==='sdr';$('twopass').checked=s.twoPass;$('smaller').checked=s.onlySmaller;$('sidecars').checked=s.copySidecars;}
   for(const [id,key]of filterFields)$(id).value=w?.settings[key]??0;
   for(const codec of ['hevc','av1','h264'])$('skip-'+codec).checked=w?.settings.skipCodecs?.includes(codec)||false;
   $('allow-hdr').checked=w?.settings.allowHDR||false;$('allow-atmos').checked=w?.settings.allowAtmosLoss||false;$('watch-error').hidden=true;$('browser').hidden=true;$('watch-dialog').showModal();
@@ -119,7 +120,8 @@ document.addEventListener('click',async(event)=>{
 $('watch-form').addEventListener('submit',async event=>{
   event.preventDefault();$('watch-save').disabled=true;$('watch-error').hidden=true;
   try{
-    const id=$('watch-id').value,data={name:$('watch-name').value,path:$('watch-path').value,settings:{codec:$('codec').value,quality:$('quality').value,preset:$('preset').value,maxHeight:Number($('height').value),audio:$('audio').value,onlySmaller:$('smaller').checked,copySidecars:$('sidecars').checked,allowHDR:$('allow-hdr').checked,allowAtmosLoss:$('allow-atmos').checked}};
+    const audio=$('audio-mode').value||$('audio').value;
+    const id=$('watch-id').value,data={name:$('watch-name').value,path:$('watch-path').value,settings:{codec:$('codec').value,quality:$('quality').value,preset:$('preset').value,maxHeight:Number($('height').value),device:$('device').value,rateControl:$('rate').value,videoBitrate:Number($('vbitrate').value||0),audio,onlySmaller:$('smaller').checked,copySidecars:$('sidecars').checked,allowHDR:$('allow-hdr').checked||$('tonemap').checked,allowAtmosLoss:$('allow-atmos').checked,deinterlace:$('deinterlace').checked,tonemap:$('tonemap').checked?'sdr':'off',twoPass:$('twopass').checked,tune:$('tune').value.trim(),profile:$('profile').value.trim(),level:$('level').value.trim(),pixFmt:$('pix').value,encoderParams:$('encoder-params').value.trim()}};
     Object.assign(data.settings,Object.fromEntries(filterFields.map(([id,key])=>[key,Number($(id).value)])),{skipCodecs:['hevc','av1','h264'].filter(codec=>$('skip-'+codec).checked)});
     data.applyFiltersToQueued=$('apply-filters').checked;
     await api('/watches'+(id?'/'+id:''),id?'PUT':'POST',data);$('watch-dialog').close();toast(id?'Indstillinger gemt.':'Overvågning startet. Filer afventer først stabilitet.');await refresh();
