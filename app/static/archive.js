@@ -39,10 +39,11 @@ $('download').onclick=()=>action(async()=>{await api('/api/archive/download','PO
 async function renderPlaces(){const places=await api('/api/places');$('place-list').innerHTML=places.map(p=>`<article class="return-row"><strong>${esc(p.name)}</strong> <span class="tag">${esc(p.type.toUpperCase())}</span><p class="hint">${esc(p.config.host||p.config.endpoint)} · ${esc(p.config.share||p.config.bucket||p.config.user||'')}${p.config.path?' / '+esc(p.config.path):''}</p><button class="button small secondary" data-place-test="${esc(p.id)}">Test</button> <button class="button small danger" data-place-remove="${esc(p.id)}">Fjern</button></article>`).join('')||'<p class="hint">Ingen ekstra steder. Docker-mapperne bruges, indtil du tilføjer et netværkssted.</p>';}
 $('add-place').onclick=()=>{$('place-error').hidden=true;$('place-dialog').showModal();};
 $('place-cancel').onclick=()=>$('place-dialog').close();
+function placeLabels(){const type=$('place-type').value,smb=type==='smb';$('place-user-label').firstChild.textContent=type==='s3'?'Access key':'Bruger';$('place-user').placeholder=type==='s3'?'AKIA...':'brugernavn';$('place-share-label').hidden=type==='sftp';$('place-share').required=type!=='sftp';$('place-share-label').firstChild.textContent=smb?'Share':'Bucket';$('place-share').placeholder=smb?'movies':'bucket';}
+$('place-type').onchange=placeLabels;placeLabels();
 $('place-form').onsubmit=e=>{e.preventDefault();action(async()=>{
-  const type=$('place-type').value,host=$('place-host').value.trim(),target=$('place-target').value.trim(),sub=$('place-path').value.trim();
-  const parts=target.split('/');
-  const config=type==='smb'?{host,user:parts[1]?parts[0]:'guest',share:parts[1]||parts[0],path:sub}:type==='sftp'?{host,user:target,path:sub,port:22}:{endpoint:host,access_key_id:parts[0],bucket:parts[1]||parts[0],path:sub};
+  const type=$('place-type').value,host=$('place-host').value.trim(),user=$('place-user').value.trim(),share=$('place-share').value.trim().replace(/^\/+|\/+$/g,''),sub=$('place-path').value.trim().replace(/^\/+|\/+$/g,'');
+  const config=type==='smb'?{host,user:user||'guest',share,path:sub}:type==='sftp'?{host,user,path:sub,port:22}:{endpoint:host,access_key_id:user,bucket:share,path:sub};
   const saved=await api('/api/places','POST',{name:$('place-name').value,type,config,secret:$('place-secret').value});
   try{await api('/api/places/'+saved.id+'/test','POST',{});$('place-dialog').close();}
   catch(err){$('place-error').textContent='Gemt, men forbindelsen fejlede: '+err.message;$('place-error').hidden=false;}
