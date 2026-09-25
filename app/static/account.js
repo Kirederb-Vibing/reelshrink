@@ -42,7 +42,8 @@
       form.elements.password.value = '';
       const response = await SimpleWebAuthnBrowser.startRegistration({optionsJSON});
       await auth.api('passkeys/register/verify', {response});
-      form.reset(); message.textContent = 'Login-nøglen er tilføjet. Du kan nu bruge den på login-siden.'; await refresh();
+      form.reset(); await refresh();
+      message.textContent = 'Login-nøglen er tilføjet. Du kan nu bruge den på login-siden.';
     } catch (error) { message.textContent = failure(error); message.classList.add('auth-error'); }
     finally { form.elements.password.value = ''; button.disabled = !auth.supported(); }
   });
