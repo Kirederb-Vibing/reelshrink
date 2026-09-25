@@ -44,6 +44,7 @@ test('transient failures are retried and permanent ones are not', () => {
   assert.equal(failureKind(new Error('Der er for lidt ledig plads')), 'permanent');
   assert.equal(failureKind(new Error('Outputkontrol: varigheden afviger for meget.')), 'permanent');
   assert.equal(failureKind(new Error('Kilden blev ændret under encodingen.')), 'permanent');
+  assert.equal(failureKind(new Error('Fatal error: unknown flag: --inplace')), 'permanent');
   const first = transferRetry({});
   assert.equal(first.attempts, 1);
   assert.equal(first.wait, 60_000);

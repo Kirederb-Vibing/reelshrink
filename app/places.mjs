@@ -212,7 +212,7 @@ export class Places {
     return videos;
   }
   transferArgs() {
-    return ['--inplace', '--multi-thread-streams', '1', '--stats', '1s', '--stats-one-line', '--use-json-log', '--contimeout', '20s', '--timeout', '6h', '--retries', '3'];
+    return ['--multi-thread-streams', '1', '--stats', '1s', '--stats-one-line', '--use-json-log', '--contimeout', '20s', '--timeout', '6h', '--retries', '3'];
   }
   async copyTo(row, rel, dest, signal, onProgress) {
     await this.writeConfig();
