@@ -60,5 +60,8 @@ test('a storage place stores the secret outside the public view', () => {
   assert.equal(JSON.stringify(saved).includes('hemmelig'), false);
   assert.deepEqual(parsePlacePath(`place:${saved.id}/Film/a.mkv`), { id: saved.id, rel: 'Film/a.mkv' });
   assert.throws(() => places.save({ name: 'x', type: 'sftp', config: { host: 'h', user: 'u', path: '../x' }, secret: 'p' }));
+  const sftp = places.save({ name: 'NAS SFTP', type: 'sftp', config: { host: 'nas.home', user: 'film', path: '/srv/storage/media/movies' }, secret: 'p@ss' });
+  assert.equal(sftp.config.path, '/srv/storage/media/movies');
+  assert.equal(places.remote(places.get(sftp.id)), `${sftp.id}:/srv/storage/media/movies`);
   store.close();
 });
