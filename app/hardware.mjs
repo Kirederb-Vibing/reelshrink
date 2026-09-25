@@ -21,7 +21,7 @@ export async function detectHardware(c) {
     vaapi: dri.some(n => n.startsWith('renderD')) && (names.has('hevc_vaapi') || names.has('h264_vaapi')),
   };
   const render = dri.find(n => n.startsWith('renderD'));
-  return { encoders: [...names], hwaccels: hw.out.split(/\s+/).filter(Boolean), devices, render: render ? `/dev/dri/${render}` : null, parallel: devices.nvidia || devices.intel || devices.vaapi };
+  return { encoders: [...names], hwaccels: hw.out.split(/\s+/).filter(Boolean), devices, render: render ? `/dev/dri/${render}` : null, parallel: Boolean(devices.nvidia) };
 }
 
 export function planEncode(options, hardware) {

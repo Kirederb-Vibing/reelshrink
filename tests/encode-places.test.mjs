@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { settings } from '../app/config.mjs';
-import { failureKind, transferRetry } from '../app/engine.mjs';
+import { canStartJob, failureKind, transferRetry } from '../app/engine.mjs';
 import { planEncode } from '../app/hardware.mjs';
 import { encodeArgs } from '../app/media.mjs';
 import { Places, parsePlacePath, parseRcloneStats } from '../app/places.mjs';
@@ -30,11 +30,21 @@ test('gpu encoders fall back to the matching cpu encoder', () => {
 });
 
 test('encode args keep crf for the default cpu profile and add filters', () => {
-  const media = { video: { index: 0, height: 2160, pix_fmt: 'yuv420p', color_transfer: 'bt709' }, streams: [] };
+  const media = { video: { index: 0, height: 2160, pix_fmt: 'yuv420p', color_transfer: 'bt709', color_primaries: 'reserved', color_space: 'bt709', color_range: 'tv' }, streams: [] };
   const args = encodeArgs('/film.mkv', media, [], '/out.mkv', settings(), { threads: 2 });
   assert.ok(args.includes('libx265'));
   assert.ok(args.includes('-crf'));
+  assert.equal(args.includes('reserved'), false);
+  assert.ok(args.includes('bt709'));
   assert.equal(args.at(-1), '/out.mkv');
+  const av1 = encodeArgs('/film.mkv', media, [], '/out.mkv', settings({ codec: 'av1', preset: 'ultrafast' }), { threads: 2 });
+  assert.equal(av1[av1.indexOf('-preset') + 1], '8');
+  const vaapi = encodeArgs('/film.mkv', media, [], '/out.mkv', settings({ codec: 'hevc', preset: 'medium' }), { threads: 2, hardware: { render: '/dev/dri/renderD128' } }, { encoder: 'hevc_vaapi', device: 'vaapi' });
+  assert.equal(vaapi.includes('-preset'), false);
+  assert.ok(vaapi.includes('hevc_vaapi'));
+  assert.ok(vaapi.includes('/dev/dri/renderD128'));
+  assert.ok(vaapi.includes('CQP'));
+  assert.match(vaapi[vaapi.indexOf('-vf') + 1], /format=nv12,hwupload/);
   const filtered = encodeArgs('/film.mkv', media, [], '/out.mkv', settings({ maxHeight: 1080, deinterlace: true, tonemap: 'sdr' }), { threads: 2 });
   assert.match(filtered[filtered.indexOf('-vf') + 1], /bwdif.*scale=-2:1080.*tonemap/);
 });
@@ -45,6 +55,14 @@ test('transient failures are retried and permanent ones are not', () => {
   assert.equal(failureKind(new Error('Outputkontrol: varigheden afviger for meget.')), 'permanent');
   assert.equal(failureKind(new Error('Kilden blev ændret under encodingen.')), 'permanent');
   assert.equal(failureKind(new Error('Fatal error: unknown flag: --inplace')), 'permanent');
+  assert.equal(failureKind(new Error('FFmpeg/FFprobe fejlede (kode 234). Unable to parse option value "reserved"')), 'permanent');
+  assert.equal(failureKind(new Error('Encodingen gik i stå uden fremdrift.')), 'transient');
+  assert.equal(failureKind(Object.assign(new Error('FFmpeg blev stoppet af systemet, ofte fordi hukommelsen slap op.'), { transient: true })), 'transient');
+  assert.equal(canStartJob([], 'cpu', true), true);
+  assert.equal(canStartJob(['cpu'], 'cpu', true), false);
+  assert.equal(canStartJob(['gpu'], 'gpu', true), true);
+  assert.equal(canStartJob(['gpu'], 'cpu', true), false);
+  assert.equal(canStartJob(['gpu'], 'gpu', false), false);
   const first = transferRetry({});
   assert.equal(first.attempts, 1);
   assert.equal(first.wait, 60_000);

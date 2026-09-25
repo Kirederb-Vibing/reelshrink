@@ -15,9 +15,16 @@ export function transferRetry(data) {
 export function failureKind(error) {
   const message = error?.message || '';
   if (/Annulleret|Afbrudt af bruger/.test(message)) return 'cancel';
-  if (/ændret|Outputkontrol|ikke mindre|Ugyldig|Atmos|HDR|Interlaced|undertekst|videospor|varighed|For lidt|plads|Checksum|allerede|symlink|monteret|unknown flag/.test(message)) return 'permanent';
-  if (['EIO','ETIMEDOUT','ENOTCONN','ESTALE','EAGAIN','ECONNRESET','ENETUNREACH'].includes(error?.code) || /gik i stå|FFmpeg|rclone|CUDA|nvenc|qsv|VAAPI|device busy|forbindelse/i.test(message)) return 'transient';
+  if (/ændret|Outputkontrol|ikke mindre|Ugyldig|Atmos|HDR|Interlaced|undertekst|videospor|varighed|For lidt|plads|Checksum|allerede|symlink|monteret|unknown flag|Unknown encoder|Unrecognized option|Unable to parse|Error setting|out of range|No space left|Invalid argument|Error while opening encoder/i.test(message)) return 'permanent';
+  if (error?.transient) return 'transient';
+  if (['EIO','ETIMEDOUT','ENOTCONN','ESTALE','EAGAIN','ECONNRESET','ENETUNREACH'].includes(error?.code) || /gik i stå|rclone|CUDA|nvenc|qsv|VAAPI|device busy|forbindelse|hukommelsen slap op/i.test(message)) return 'transient';
   return 'permanent';
+}
+export function canStartJob(running, nextDevice, parallel) {
+  if (running.length >= (parallel ? 2 : 1)) return false;
+  if (running.some(device => device !== 'gpu')) return false;
+  if (running.length && nextDevice !== 'gpu') return false;
+  return true;
 }
 import { fingerprint, digest, sourceHeld } from './returner.mjs';
 
@@ -46,6 +53,16 @@ export class Engine {
       await fs.rm(path.join(this.stageRoot,id),{recursive:true,force:true});
     }
     this.store.run("UPDATE jobs SET state='queued',progress=0,error='Genstartet fra begyndelsen efter afbrydelse.' WHERE state='running'");
+    this.store.run("UPDATE jobs SET next_retry=NULL, attempts=0, error=NULL WHERE state='queued' AND error LIKE 'Midlertidig fejl%'");
+    for (const watch of this.store.watches()) {
+      for (const row of this.store.all("SELECT id,settings FROM jobs WHERE watch_id=? AND state='queued' AND hidden=0", watch.id)) {
+        let current;
+        try { current = JSON.parse(row.settings); } catch { continue; }
+        const next = settings({ ...watch.settings, allowHDR: Boolean(current.allowHDR) || watch.settings.allowHDR, allowAtmosLoss: Boolean(current.allowAtmosLoss) || watch.settings.allowAtmosLoss });
+        if (next.codec === current.codec && next.device === current.device && next.quality === current.quality && next.preset === current.preset) continue;
+        this.store.updateJob(row.id, { settings: JSON.stringify(next), next_retry: null, attempts: 0, error: null, progress: 0, speed: null, eta: null });
+      }
+    }
     this.store.run("UPDATE jobs SET state='cancelled',error='Annulleret før genstart.' WHERE state='cancel_requested'");
   }
   start() {
@@ -110,14 +127,17 @@ export class Engine {
   }
   tick() {
     if(this.stopping || this.maintenance || this.store.globallyPaused() || this.store.paused()) return;
-    const slots=this.c.hardware?.parallel ? 2 : 1;
-    if((this.active?1:0)+(this.extra?1:0) >= slots) return;
-    const busy=new Set([this.active?.id, this.extra?.id].filter(Boolean));
+    const running=[this.active,this.extra].filter(Boolean);
+    const busy=new Set(running.map(slot=>slot.id));
     const row=this.store.all("SELECT j.id,j.source FROM jobs j JOIN watches w ON w.id=j.watch_id WHERE j.state='queued' AND j.hidden=0 AND w.enabled=1 AND (j.next_retry IS NULL OR j.next_retry<=?) ORDER BY j.created,j.id", Date.now()).find(j=>!busy.has(j.id) && !sourceHeld(this.store,j.source));
     if(!row) return;
+    const job=this.store.job(row.id);
+    if(!job) return;
+    const device=planEncode(job.settings,this.c.hardware).device==='cpu'?'cpu':'gpu';
+    if(!canStartJob(running.map(slot=>slot.device),device,Boolean(this.c.hardware?.parallel))) return;
     const controller=new AbortController();
     const slot=this.active?'extra':'active';
-    this[slot]={id:row.id,controller};
+    this[slot]={id:row.id,controller,device};
     this.store.updateJob(row.id,{state:'running',error:null,progress:0,speed:null,eta:null});
     const task=this.process(this.store.job(row.id),controller.signal).catch(error=>{
       console.error('Job failed',row.id,error.message);
@@ -132,6 +152,7 @@ export class Engine {
     else if(['running','cancel_requested'].includes(job.state)) {
       this.store.updateJob(id,{state:'cancel_requested'});
       if(this.active?.id===id) this.active.controller.abort();
+      if(this.extra?.id===id) this.extra.controller.abort();
     } else throw new Error('Kun ventende eller aktive jobs kan annulleres.');
   }
   async retry(id, overrides = {}) {
@@ -169,7 +190,7 @@ export class Engine {
       const subtitles=await prepareSubtitles(job.bundle.subtitles,normalized);
       let time=0,speed=0,lastUpdate=0;
       const encodeStarted=Date.now();
-      const plan=planEncode(job.settings,this.c.hardware);
+      let plan=planEncode(job.settings,this.c.hardware);
       if(plan.fallback) this.store.updateJob(job.id,{error:`GPU er ikke klar (${plan.tried.join(', ')}). Fortsætter på CPU med ${plan.encoder}.`});
       const encodeOnce=(pass)=>{
         const args=encodeArgs(job.source,media,subtitles,pass===1?path.join(stage,'null.mkv'):encoded,job.settings,this.c,plan);
@@ -185,8 +206,18 @@ export class Engine {
         }
       });
       };
-      if(job.settings.twoPass && plan.device==='cpu' && ['libx264','libx265'].includes(plan.encoder)) await encodeOnce(1);
-      const result=await encodeOnce(2);
+      let result;
+      try {
+        if(job.settings.twoPass && plan.device==='cpu' && ['libx264','libx265'].includes(plan.encoder)) await encodeOnce(1);
+        result=await encodeOnce(2);
+      } catch(error) {
+        if(signal.aborted || plan.device==='cpu' || time>0) throw error;
+        const cpuEncoder=plan.codec==='h264'?'libx264':plan.codec==='av1'?'libsvtav1':'libx265';
+        plan={encoder:cpuEncoder,device:'cpu',codec:plan.codec,fallback:true,tried:plan.tried};
+        this.store.updateJob(job.id,{error:`Grafikkortet kunne ikke starte. Fortsætter på processoren med ${cpuEncoder}. ${String(error.message||'').slice(0,180)}`,progress:0,speed:null,eta:null});
+        await fs.rm(encoded,{force:true});
+        result=await encodeOnce(2);
+      }
       this.work?.recordTiming?.(job.source,'encodingMs',Date.now()-encodeStarted);
       const checkStarted=Date.now();
       const outputMedia=await probe(encoded,this.c,signal);
