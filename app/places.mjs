@@ -125,7 +125,20 @@ export class Places {
   async test(id) {
     const row = this.get(id);
     await this.writeConfig();
-    await rclone(this.file, ['lsd', this.remote(row), '--max-depth', '1', '--contimeout', '15s', '--timeout', '30s']);
+    try {
+      await rclone(this.file, ['lsd', this.remote(row), '--max-depth', '1', '--contimeout', '15s', '--timeout', '30s']);
+    } catch (error) {
+      if (row.type === 'smb' && /directory not found/i.test(error.message)) {
+        const config = JSON.parse(row.config);
+        let shares = '';
+        try {
+          shares = (await rclone(this.file, ['lsf', `${row.id}:`, '--dirs-only', '--contimeout', '15s', '--timeout', '30s']))
+            .split('\n').map(line => line.trim().replace(/\/$/, '')).filter(Boolean).join(', ');
+        } catch { /* login worked far enough to know the folder is wrong */ }
+        throw new Error(`Mappen blev ikke fundet. SMB skal bruge sharenavnet fra netværket, ikke NAS'ens interne sti som /srv/storage. Du bad om "${config.share}${config.path ? '/' + config.path : ''}".${shares ? ` Tilgængelige shares: ${shares}.` : ' Tjek sharenavnet i NAS-indstillingerne.'}`);
+      }
+      throw error;
+    }
     return { ok: true };
   }
   async listVideos(row, signal) {
