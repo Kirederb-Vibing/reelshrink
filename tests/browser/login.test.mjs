@@ -38,8 +38,8 @@ test('browser password login, passkey registration/login/removal, logout and mob
   await page.getByRole('link', {name: 'Konto', exact: true}).click();
   await page.locator('#key-name').fill('Browser test key'); await page.locator('#key-password').fill('browser-test-password');
   await page.locator('#add-key').click();
-  await page.waitForFunction(() => document.querySelector('#key-message').textContent.includes('er tilføjet'));
-  assert.match(await page.locator('#passkey-list').textContent(), /Browser test key/);
+  await page.waitForFunction(() => document.querySelector('#passkey-list').textContent.includes('Browser test key'));
+  assert.match(await page.locator('#key-message').textContent(), /er tilføjet/);
   assert.equal((await cdp.send('WebAuthn.getCredentials', {authenticatorId})).credentials.length, 1);
   await page.getByRole('button', {name: 'Log ud', exact: true}).click(); await page.waitForURL(base + '/login');
   assert.equal((await context.request.get(base + '/api/status')).status(), 401);
