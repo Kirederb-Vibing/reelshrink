@@ -86,8 +86,12 @@ export class Places {
       if (!/^[\w.-]{1,80}$/.test(config.bucket || '')) throw new Error('Angiv bucket-navnet.');
       if (!/^[\w][\w.-]{0,80}$/.test(config.access_key_id || '')) throw new Error('Angiv access key.');
     }
-    config.path = String(config.path || '').replace(/^\/+|\/+$/g, '');
-    if (config.path && config.path.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Stien må ikke indeholde ..');
+    const rawPath = String(config.path || '').trim();
+    const absolute = type === 'sftp' && rawPath.startsWith('/');
+    config.path = rawPath.replace(/^\/+|\/+$/g, '');
+    if (absolute) config.path = '/' + config.path;
+    const pathParts = config.path.split('/').filter((part, index) => !(index === 0 && part === ''));
+    if (config.path && pathParts.some(part => !part || part === '.' || part === '..')) throw new Error('Stien må ikke indeholde ..');
     const secret = input.secret === undefined ? existing?.secret || '' : String(input.secret);
     if (!existing && !secret) throw new Error('Adgangskoden eller nøglen mangler.');
     return { name, type, config, secret, enabled: input.enabled !== false };
@@ -128,6 +132,19 @@ export class Places {
     try {
       await rclone(this.file, ['lsd', this.remote(row), '--max-depth', '1', '--contimeout', '15s', '--timeout', '30s']);
     } catch (error) {
+      if (row.type === 'sftp' && /directory not found/i.test(error.message)) {
+        const config = JSON.parse(row.config);
+        if (config.path && !config.path.startsWith('/')) {
+          const absolute = '/' + config.path;
+          try {
+            await rclone(this.file, ['lsd', `${row.id}:${absolute}`, '--max-depth', '1', '--contimeout', '15s', '--timeout', '30s']);
+            config.path = absolute;
+            this.store.run('UPDATE places SET config=? WHERE id=?', JSON.stringify(config), row.id);
+            return { ok: true };
+          } catch { /* the absolute path is missing too */ }
+        }
+        throw new Error(`Mappen blev ikke fundet. SFTP starter i brugerens hjemmemappe, medmindre stien begynder med /. Du bad om "${config.path || 'hjemmemappen'}". Brug den fulde sti, fx /srv/storage/media/movies.`);
+      }
       if (row.type === 'smb' && /directory not found/i.test(error.message)) {
         const config = JSON.parse(row.config);
         let shares = '';
