@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim
+FROM node:25-bookworm-slim
 
 ARG VERSION=0.9.0
 ARG REVISION=unknown
